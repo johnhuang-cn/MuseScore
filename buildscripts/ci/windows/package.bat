@@ -63,9 +63,17 @@ IF %DO_SIGN% == ON (
         SET DO_SIGN=OFF
         ECHO "warning: not set SIGN_KEY"
     )
+    IF %SIGN_KEY% == "''" ( 
+        SET DO_SIGN=OFF
+        ECHO "warning: SIGN_KEY is placeholder, skipping sign"
+    )
     IF %SIGN_SECRET% == "" ( 
         SET DO_SIGN=OFF
         ECHO "warning: not set SIGN_SECRET"
+    )
+    IF %SIGN_SECRET% == "''" ( 
+        SET DO_SIGN=OFF
+        ECHO "warning: SIGN_SECRET is placeholder, skipping sign"
     )
 )
 
