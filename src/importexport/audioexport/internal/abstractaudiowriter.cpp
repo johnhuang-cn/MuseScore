@@ -79,7 +79,12 @@ Ret AbstractAudioWriter::writeList(const INotationPtrList&, io::IODevice&, const
 
 void AbstractAudioWriter::abort()
 {
-    playback()->abortSavingAllSoundTracks();
+    //! NOTE playback() resolves against m_iocContext, which is only set once
+    //! an export has started (doWriteAndWait). A cancel request before that
+    //! has nothing to abort.
+    if (m_iocContext) {
+        playback()->abortSavingAllSoundTracks();
+    }
     m_isCompleted = true;
 }
 

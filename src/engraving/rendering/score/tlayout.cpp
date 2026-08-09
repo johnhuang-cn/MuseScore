@@ -4318,12 +4318,17 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
         // Reserve space for octave dots above/below the digit.
         // octaveOffset: 0=middle octave, +N=N dots above, -N=N dots below
         //   Fixed Do: 中音区 = C4..B4 (pitch/12-5 == 0)
-        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)，其中 tonicMidi = 60+tonicChroma (60..71)
+        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)；主音取中央C下方
+        //   小三度起的一个八度（A3..G#4）——简谱惯例调式顺序 A B C D E F G：
+        //   A/bB/B 的 do 落在中央C下方（1=bB 的 do = C调低音b7），其余在上方。
         int octaveOffset;
         if (isFixedDo) {
             octaveOffset = pitch / 12 - 5; // C4 pitch=60 → 0
         } else {
             int tonicMidi = 60 + tonicChroma;
+            if (tonicMidi > 68) {  // A4/Bb4/B4 -> A3/Bb3/B3
+                tonicMidi -= 12;
+            }
             int diff = pitch - tonicMidi;
             octaveOffset = (diff >= 0) ? (diff / 12) : -((-diff + 11) / 12);
         }

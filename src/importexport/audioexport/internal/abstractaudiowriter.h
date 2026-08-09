@@ -40,7 +40,6 @@ public:
     muse::GlobalInject<IAudioExportConfiguration> configuration;
     muse::GlobalInject<muse::IApplication> application;
     muse::GlobalInject<muse::audio::IStartAudioController> startAudioController;
-    muse::ContextInject<muse::audio::IPlayback> playback = { this };
 
 public:
     AbstractAudioWriter(const muse::modularity::ContextPtr& iocCtx)
@@ -60,6 +59,18 @@ protected:
     muse::Ret doWriteAndWait(notation::INotationPtr notation, muse::io::IODevice& dstDevice, const muse::audio::SoundTrackFormat& format);
 
 private:
+    //! NOTE IPlayback is a CONTEXTUAL service: registered per module context,
+    //! never in the global IoC. The writers themselves are created globally
+    //! (with the global context, whose id is 0), so binding this inject at
+    //! construction would resolve against an empty registry - and trip the
+    //! `ctx->id > 0` assertion in ioc.cpp in debug builds. Instead, resolve it
+    //! on demand against the exported notation's context, captured in
+    //! doWriteAndWait() into m_iocContext.
+    std::shared_ptr<muse::audio::IPlayback> playback() const
+    {
+        return muse::ContextInject<muse::audio::IPlayback>(m_iocContext)();
+    }
+
     void doWrite(muse::io::IODevice& dstDevice, const muse::audio::SoundTrackFormat& format);
 
     UnitType unitTypeFromOptions(const Options& options) const;
