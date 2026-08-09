@@ -202,6 +202,9 @@ void EditStaff::hideEvent(QHideEvent* ev)
 
 void EditStaff::updateStaffType(const mu::engraving::StaffType& staffType)
 {
+    //! NOTE Jianpu staves legitimately have zero staff lines; allow 0 so that
+    //! opening this dialog does not force a phantom line onto the staff.
+    lines->setMinimum(staffType.group() == mu::engraving::StaffGroup::JIANPU ? 0 : 1);
     lines->setValue(staffType.lines());
     lineDistance->setValue(staffType.lineDistance().val());
     showClef->setChecked(staffType.genClef());

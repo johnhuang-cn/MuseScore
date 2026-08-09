@@ -2489,7 +2489,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                     ++rank;
                 }
             }
-            const double stackStep = bb.height() * 1.1;
+            const double stackStep = bb.height() * 1.4;
             const int level = (stackCount - 1) - rank;  // 0 = bottom of column
             stackShift = -level * stackStep;
             columnCenterShift = -((stackCount - 1) * 0.5) * stackStep;
@@ -2872,15 +2872,15 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
         // Draw augmentation dots (附点) right after the digit for dotted durations
         // shorter than a half note; half/whole/breve already express the dot via
         // extra sustain dashes (see above).
-        if (item->chord() && isLowestOfStack && !item->dots().empty() && !item->dotsHidden()) {
+        if (item->chord() && !item->dots().empty() && !item->dotsHidden()) {
             DurationType dottedType = item->chord()->durationType().type();
             if (dottedType != DurationType::V_HALF && dottedType != DurationType::V_WHOLE
                 && dottedType != DurationType::V_BREVE) {
                 double advanceW = FontMetrics::width(f, item->fretString());
                 double dotRadius = bb.height() * 0.07;
                 double dotGap = bb.height() * 0.18;
-                // visual vertical center of the digit column (one dot per chord)
-                double dotCY = (yOffset + columnCenterShift) + bb.y() + bb.height() * 0.5;
+                // one dot per digit: each stacked note dots its own level
+                double dotCY = yOffset + bb.y() + bb.height() * 0.5;
                 painter->save();
                 painter->setPen(Pen(item->curColor(opt), 0.0));
                 painter->setBrush(Brush(item->curColor(opt)));

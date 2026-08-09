@@ -311,6 +311,9 @@ void EditStaffType::setValues()
     groupName->setText(TConv::translatedUserName(group));
 
     name->setText(staffType.staffTypeName());
+    //! NOTE Jianpu staves legitimately have zero staff lines; allow 0 so the
+    //! dialog does not clamp the value and force a phantom line on apply.
+    lines->setMinimum(group == mu::engraving::StaffGroup::JIANPU ? 0 : 1);
     lines->setValue(staffType.lines());
     lineDistance->setValue(staffType.lineDistance().val());
     genClef->setChecked(staffType.genClef());

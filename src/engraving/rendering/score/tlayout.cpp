@@ -4363,6 +4363,21 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
             bboxBottom += graceYShift;
         }
 
+        // Jianpu chord stack: digits stack upward at draw time (see tdraw.cpp,
+        // stackStep = 1.4 * digit height); reserve the extra column height so
+        // system spacing clears the top of the stack.
+        if (item->chord() && !item->chord()->isGrace() && item->chord()->notes().size() > 1) {
+            const std::vector<Note*>& stackNotes = item->chord()->notes();
+            int rank = 0;  // 0 = highest pitch
+            for (const Note* other : stackNotes) {
+                if (other != item && other->pitch() > item->pitch()) {
+                    ++rank;
+                }
+            }
+            const int stackLevel = (int(stackNotes.size()) - 1) - rank;  // 0 = bottom
+            bboxTop -= stackLevel * bbHeightScaled * 1.4;
+        }
+
         noteBBox = RectF(0, bboxTop, bboxWidth, bboxBottom - bboxTop);
     } else {
         if (item->deadNote()) {
