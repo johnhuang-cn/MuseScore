@@ -55,6 +55,7 @@ private:
     static void fillShape(const MMRest* item, MMRest::LayoutData* ldata, const LayoutConfiguration& conf);
 
     static int computeNaturalLine(int lines);
+    static double jianpuRestGroupMinWidth(const Rest* item);
     static int computeVoiceOffset(const Rest* item, Rest::LayoutData* ldata); // Vertical displacement in multi-voice cases
     static int computeWholeOrBreveRestOffset(const Rest* item, int voiceOffset, int lines);
 

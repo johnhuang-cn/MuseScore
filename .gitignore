@@ -91,4 +91,7 @@ compile_commands.json
 # QML language server
 **/.qmlls.ini
 
+# Qoder RepoWiki
+.qoder/repowiki/
+
 /docs/

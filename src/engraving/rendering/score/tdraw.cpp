@@ -2468,6 +2468,35 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
             yOffset += graceYShift;
         }
 
+        // Chord stacking: a multi-note chord renders as a vertical column of
+        // digits (highest pitch on top). Columns are BOTTOM-aligned: the lowest
+        // digit stays on the note line (level 0) and higher digits stack upward,
+        // so a following single note or smaller chord lines up with the bottom
+        // of the column, e.g. chord-then-single:
+        //   5
+        //   3  2
+        // Column-wide accessories (underlines, sustain dashes, augmentation
+        // dot) are drawn once, by the lowest digit of the stack.
+        double stackShift = 0.0;
+        double columnCenterShift = 0.0;
+        bool isLowestOfStack = true;
+        if (item->chord() && !isJianpuGrace && item->chord()->notes().size() > 1) {
+            const std::vector<Note*>& stackNotes = item->chord()->notes();
+            const int stackCount = int(stackNotes.size());
+            int rank = 0;  // 0 = highest pitch
+            for (const Note* other : stackNotes) {
+                if (other != item && other->pitch() > item->pitch()) {
+                    ++rank;
+                }
+            }
+            const double stackStep = bb.height() * 1.1;
+            const int level = (stackCount - 1) - rank;  // 0 = bottom of column
+            stackShift = -level * stackStep;
+            columnCenterShift = -((stackCount - 1) * 0.5) * stackStep;
+            isLowestOfStack = (level == 0);
+            yOffset += stackShift;
+        }
+
         // Draw accidental symbol at top-left of the digit using SMuFL glyph (same as standard staff).
         // Accidental is drawn to the LEFT of startPosX (may overflow bbox).
         // For Jianpu we use the effective alter computed in tlayout (stored on the note),
@@ -2481,6 +2510,27 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
             case  1: accType = AccidentalType::SHARP; break;
             case  2: accType = AccidentalType::SHARP2; break;
             default: accType = AccidentalType::NONE; break;
+            }
+        }
+        // A cancellation accidental attached to the note must still be rendered in
+        // Jianpu even when the effective alter is 0: e.g. a natural that cancels a
+        // previous sharp/flat within the measure. Note::updateAccidental() (run for
+        // Jianpu staves too, see Chord::cmdUpdateNotes) creates the Accidental
+        // element automatically, but jianpuAlter() alone would drop it (alter == 0).
+        if (accType == AccidentalType::NONE) {
+            const Accidental* acc = item->accidental();
+            if (acc && acc->visible()) {
+                switch (acc->accidentalType()) {
+                case AccidentalType::NATURAL:
+                case AccidentalType::SHARP:
+                case AccidentalType::FLAT:
+                case AccidentalType::SHARP2:
+                case AccidentalType::FLAT2:
+                    accType = acc->accidentalType();
+                    break;
+                default:
+                    break;
+                }
             }
         }
         if (accType != AccidentalType::NONE) {
@@ -2513,7 +2563,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 // Position origin at digit visual top so symbol occupies upper-left of digit.
                 // For grace notes the digit is shifted up by graceYShift, so the accidental
                 // must follow to stay at the digit's upper-left (not at the main-note position).
-                double digitVisualTop = -(bb.height() * 0.5) + graceYShift;
+                double digitVisualTop = -(bb.height() * 0.5) + graceYShift + stackShift;
                 // Per-symbol Y offset: flat glyph extends upward from baseline more than
                 // sharp/natural, so shift it down slightly to align visually.
                 double yExtraOffset = 0.0;
@@ -2582,12 +2632,12 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
 
         // Draw duration underlines (减时线)
         // 前倚音仍然绘制减时线（反映其自身时值），但不参与拍号分组，一律走 single-note 分支
-        if (item->chord()) {
+        if (item->chord() && isLowestOfStack) {
             const Chord* chord = item->chord();
             int hooks = chord->durationType().hooks();
             if (hooks > 0) {
                 // grace 数字已整体上移 graceYShift，减时线也要同步上移
-                double digitBaseline = -bb.y() - bb.height() * 0.5 + graceYShift;
+                double digitBaseline = -bb.y() - bb.height() * 0.5 + graceYShift + stackShift;
                 double baseY = digitBaseline + bb.height() * 0.12;
                 double lineThickness = bb.height() * 0.06;
                 double lineSpacing = bb.height() * 0.13;
@@ -2722,7 +2772,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 if (octaveOffset > 0) {
                     // Dots above the digit
                     // First dot sits just above the digit top
-                    double digitTop = -(bb.height() * 0.5) + graceYShift;  // digit top in local coords
+                    double digitTop = -(bb.height() * 0.5) + graceYShift + stackShift;  // digit top in local coords
                     double firstDotCenterY = digitTop - dotRadius - bb.height() * 0.15;
                     for (int i = 0; i < octaveOffset; ++i) {
                         double dotCY = firstDotCenterY - i * dotSpacing;
@@ -2735,7 +2785,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                     // Compute the bottom of the last underline using the same formula
                     // as the underline drawing code above
                     int hooks = item->chord() ? item->chord()->durationType().hooks() : 0;
-                    double digitBaseline2 = -bb.y() - bb.height() * 0.5 + graceYShift;
+                    double digitBaseline2 = -bb.y() - bb.height() * 0.5 + graceYShift + stackShift;
                     double underlineBaseY = digitBaseline2 + bb.height() * 0.12;
                     double ulLineSpacing = bb.height() * 0.13;
                     double ulLineThickness = bb.height() * 0.06;
@@ -2759,7 +2809,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
         }
 
         // Draw sustain dashes for half/whole notes (延时横线)
-        if (item->chord()) {
+        if (item->chord() && isLowestOfStack) {
             const Chord* chord = item->chord();
             DurationType dtype = chord->durationType().type();
             int extraBeats = 0;
@@ -2793,8 +2843,8 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                         double beatWidth = availableWidth / totalBeats;
                         double advanceW = FontMetrics::width(f, item->fretString());
                         double dashHalfLen = advanceW * 0.45;
-                        // Dash at midpoint between char top and baseline (visual center of digits)
-                        double dashY = yOffset + bb.y() / 2.0;
+                        // Dash at column vertical center
+                        double dashY = (yOffset + columnCenterShift) + bb.y() / 2.0;
                         double dashThickness = bb.height() * 0.09;
                         LOGD("[Jianpu-Dash] extraBeats=%d, yOffset=%.2f, bb.y=%.2f, bb.h=%.2f, "
                              "dashY=%.2f, thickness=%.2f",
@@ -2811,6 +2861,32 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                         painter->restore();
                     }
                 }
+            }
+        }
+
+        // Draw augmentation dots (附点) right after the digit for dotted durations
+        // shorter than a half note; half/whole/breve already express the dot via
+        // extra sustain dashes (see above).
+        if (item->chord() && isLowestOfStack && !item->dots().empty() && !item->dotsHidden()) {
+            DurationType dottedType = item->chord()->durationType().type();
+            if (dottedType != DurationType::V_HALF && dottedType != DurationType::V_WHOLE
+                && dottedType != DurationType::V_BREVE) {
+                double advanceW = FontMetrics::width(f, item->fretString());
+                double dotRadius = bb.height() * 0.07;
+                double dotGap = bb.height() * 0.18;
+                // visual vertical center of the digit column (one dot per chord)
+                double dotCY = (yOffset + columnCenterShift) + bb.y() + bb.height() * 0.5;
+                painter->save();
+                painter->setPen(Pen(item->curColor(opt), 0.0));
+                painter->setBrush(Brush(item->curColor(opt)));
+                int nDots = static_cast<int>(item->dots().size());
+                for (int d = 0; d < nDots; ++d) {
+                    double dotCX = startPosX + advanceW + dotGap + dotRadius
+                                   + d * (dotRadius * 2.0 + dotGap * 0.5);
+                    painter->drawEllipse(RectF(dotCX - dotRadius, dotCY - dotRadius,
+                                               dotRadius * 2.0, dotRadius * 2.0));
+                }
+                painter->restore();
             }
         }
     }
@@ -2859,7 +2935,9 @@ void TDraw::draw(const NoteDot* item, Painter* painter, const PaintOptions& opt)
     } else if (item->rest() && item->rest()->isGap()) {  // don't draw dot for gap rests
         return;
     }
-    // Jianpu: augmentation dots are represented by dashes, don't draw dot symbol
+    // Jianpu: augmentation dots are drawn inside draw(Note*)/draw(Rest*) themselves
+    // (dot after the digit for short durations, extra dashes/"0"s for long ones);
+    // skip the standard dot symbol here.
     if (item->onJianpuStaff()) {
         return;
     }
@@ -2998,10 +3076,33 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
         // Multi-beat rest: display multiple "0"s for half/whole rests
         DurationType rdtype = item->durationType().type();
         int totalRestBeats = 1;
+        int restHooks = 0;  // underlines per "0" when the beat unit is shorter than a quarter
         if (rdtype == DurationType::V_HALF) {
             totalRestBeats = 2;
         } else if (rdtype == DurationType::V_WHOLE || rdtype == DurationType::V_MEASURE) {
             totalRestBeats = 4;
+            // Measure rest: one "0" per beat of the measure, not always 4.
+            // 3/4 -> 3 zeros, 2/4 -> 2, 3/8 -> 3 underlined zeros, 6/8 -> 6, ...
+            if (rdtype == DurationType::V_MEASURE && item->measure()) {
+                const Fraction ts = item->measure()->timesig();
+                const int denom = ts.denominator() > 0 ? ts.denominator() : 4;
+                const Fraction mlen = item->measure()->stretchedLen(item->staff());
+                // "0" unit: quarter by default; half-note beats (x/2) are expanded
+                // into quarter "0"s; 8th/16th/... beats get underlines instead.
+                const int unitDenom = denom < 4 ? 4 : denom;
+                int zeros = (mlen.numerator() * unitDenom + mlen.denominator() / 2) / mlen.denominator();
+                if (zeros < 1) {
+                    zeros = 1;
+                }
+                totalRestBeats = zeros;
+                switch (denom) {
+                case 8:  restHooks = 1; break;
+                case 16: restHooks = 2; break;
+                case 32: restHooks = 3; break;
+                case 64: restHooks = 4; break;
+                default: restHooks = 0; break;
+                }
+            }
         } else if (rdtype == DurationType::V_BREVE) {
             totalRestBeats = 8;
         }
@@ -3012,12 +3113,15 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
                 totalRestBeats += cur;
             }
         }
-        // Draw "0"s at beat positions
-        if (totalRestBeats > 1) {
+        // Compute "0" positions: beat-based, centered in available space
+        double textW = FontMetrics::width(f, restStr);
+        double zeroStart = startPosX;
+        double zeroSpacing = 0.0;
+        bool multiZero = totalRestBeats > 1;
+        if (multiZero) {
             const Segment* curSeg = item->segment();
             const Measure* meas = item->measure();
             if (curSeg && meas) {
-                double textW = FontMetrics::width(f, restStr);
                 // Available width from segment position (not element position!)
                 // V_MEASURE rests have large item->x() due to layout centering;
                 // V_HALF/V_WHOLE rests have item->x()=0.
@@ -3035,16 +3139,19 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
                 if (availW < textW) availW = textW;
                 // Segment start in draw coords (undo layout centering offset)
                 double segStart = -item->x();
-                // Spacing: beat-based, capped to prevent overflow
+                // Spacing: beat-based, capped to prevent overflow.
+                // Measure rests stretch the "0" group across the free width so a
+                // rest measure reads like a played one; other long rests keep
+                // their beat slots (e.g. a half rest before played beats).
                 double beatSpacing = availW / totalRestBeats;
-                double fitSpacing = (totalRestBeats > 1)
-                    ? (availW - textW) / (totalRestBeats - 1)
-                    : 0.0;
+                double fitSpacing = (availW - textW) / (totalRestBeats - 1);
                 if (fitSpacing < 0) fitSpacing = 0;
-                double spacing = std::min(beatSpacing, fitSpacing);
+                double spacing = (rdtype == DurationType::V_MEASURE)
+                    ? fitSpacing : std::min(beatSpacing, fitSpacing);
                 // Center the "0" group within available space
                 double groupWidth = (totalRestBeats - 1) * spacing + textW;
-                double groupStart = segStart + (availW - groupWidth) / 2.0;
+                zeroStart = segStart + (availW - groupWidth) / 2.0;
+                zeroSpacing = spacing;
                 LOGD("[Jianpu-Rest] totalBeats=%d, rdtype=%d, "
                      "curSeg->x()=%.2f, meas->w()=%.2f, item->x()=%.2f, "
                      "availW=%.2f, textW=%.2f, spacing=%.2f, "
@@ -3052,26 +3159,52 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
                      totalRestBeats, (int)rdtype,
                      curSeg->x(), meas->width(), item->x(),
                      availW, textW, spacing,
-                     groupWidth, groupStart, segStart);
-                for (int i = 0; i < totalRestBeats; ++i) {
-                    double x = groupStart + spacing * i;
-                    painter->setFont(f);
-                    painter->drawText(PointF(x, yOffset), restStr);
-                }
+                     groupWidth, zeroStart, segStart);
             } else {
-                painter->setFont(f);
-                painter->drawText(PointF(startPosX, yOffset), restStr);
+                multiZero = false;
             }
-        } else {
-            // Single-beat rest: draw one "0" at startPosX
-            painter->setFont(f);
-            painter->drawText(PointF(startPosX, yOffset), restStr);
         }
 
-        // Draw duration underlines (减时线)
+        // Draw "0"s at beat positions.
+        // NOTE: Painter::drawText() accumulates font-size scaling internally,
+        // so the font must be reset before EVERY drawText call, otherwise the
+        // 2nd and later "0"s balloon exponentially (historical Jianpu bug).
+        const int zeroCount = multiZero ? totalRestBeats : 1;
+        for (int i = 0; i < zeroCount; ++i) {
+            double x = multiZero ? (zeroStart + zeroSpacing * i) : startPosX;
+            painter->setFont(f);
+            painter->drawText(PointF(x, yOffset), restStr);
+        }
+
+        // Draw augmentation dot (附点) after the single "0" for short dotted rests;
+        // long rests already express dots via extra "0" beats above.
+        if (item->dots() > 0 && totalRestBeats == 1) {
+            double dotRadius = bb.height() * 0.07;
+            double dotGap = bb.height() * 0.18;
+            double dotCY = yOffset + bb.y() + bb.height() * 0.5;
+            painter->save();
+            painter->setPen(Pen(item->curColor(opt), 0.0));
+            painter->setBrush(Brush(item->curColor(opt)));
+            for (int d = 0; d < item->dots(); ++d) {
+                double dotCX = startPosX + textW + dotGap + dotRadius
+                               + d * (dotRadius * 2.0 + dotGap * 0.5);
+                painter->drawEllipse(RectF(dotCX - dotRadius, dotCY - dotRadius,
+                                           dotRadius * 2.0, dotRadius * 2.0));
+            }
+            painter->restore();
+        }
+
+        // Draw duration underlines (减时线) under every "0"
         int hooks = item->durationType().hooks();
+        if (restHooks > hooks) {
+            hooks = restHooks;
+        }
         if (hooks > 0) {
             double lineWidth = bb.width();
+            if (multiZero && zeroSpacing > 0.0) {
+                // Keep a visible break between adjacent "0" underline segments
+                lineWidth = std::min(lineWidth, zeroSpacing * 0.8);
+            }
             double digitBaseline = -bb.y() - bb.height() * 0.5;  // = yOffset
             double baseY = digitBaseline + bb.height() * 0.12;
             double lineThickness = bb.height() * 0.06;
@@ -3080,9 +3213,13 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
             Pen pen(item->curColor(opt), lineThickness, PenStyle::SolidLine, PenCapStyle::FlatCap);
             painter->setPen(pen);
 
-            for (int i = 0; i < hooks; ++i) {
-                double y = baseY + i * lineSpacing;
-                painter->drawLine(PointF(startPosX, y), PointF(startPosX + lineWidth, y));
+            // One underline segment per "0"; width capped so segments stay broken
+            for (int k = 0; k < zeroCount; ++k) {
+                double zx = multiZero ? (zeroStart + zeroSpacing * k) : startPosX;
+                for (int i = 0; i < hooks; ++i) {
+                    double y = baseY + i * lineSpacing;
+                    painter->drawLine(PointF(zx, y), PointF(zx + lineWidth, y));
+                }
             }
         }
         return;
