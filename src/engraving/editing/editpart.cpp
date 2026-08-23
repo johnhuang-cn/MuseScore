@@ -25,6 +25,8 @@
 #include "editstaff.h"
 #include "transpose.h"
 
+#include "log.h"
+
 #include "../dom/excerpt.h"
 #include "../dom/factory.h"
 #include "../dom/instrchange.h"
@@ -413,6 +415,10 @@ void EditPart::setStaffVisible(Score* score, Staff* staff, bool visible)
     if (!score || !staff) {
         return;
     }
+
+    LOGI() << "[VIS-DEBUG] EditPart::setStaffVisible staff ptr=" << (void*)staff
+           << " idx=" << staff->idx() << " id=" << staff->id()
+           << " visible=" << visible;
 
     staff->undoChangeProperty(Pid::VISIBLE, visible);
 }

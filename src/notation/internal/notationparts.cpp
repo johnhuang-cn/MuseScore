@@ -533,13 +533,28 @@ void NotationParts::setStaffVisible(const ID& staffId, bool visible)
 {
     TRACEFUNC;
 
+    LOGI() << "[VIS-DEBUG] NotationParts::setStaffVisible requested id=" << staffId
+           << " visible=" << visible << ", score staves:";
+    for (const Staff* s : score()->staves()) {
+        LOGI() << "[VIS-DEBUG]   staff ptr=" << (const void*)s
+               << " idx=" << s->idx()
+               << " id=" << s->id()
+               << " linked=" << s->isLinked()
+               << " visible=" << s->visible();
+    }
+
     Staff* staff = staffModifiable(staffId);
     if (!staff) {
+        LOGI() << "[VIS-DEBUG] staffModifiable returned NULL for id=" << staffId;
         return;
     }
 
+    LOGI() << "[VIS-DEBUG] resolved staff ptr=" << (void*)staff
+           << " idx=" << staff->idx() << " id=" << staff->id();
+
     StaffConfig config = staffConfig(staffId);
     if (config.visible == visible) {
+        LOGI() << "[VIS-DEBUG] early return: config.visible already ==" << visible;
         return;
     }
 

@@ -1795,6 +1795,9 @@ bool Staff::setProperty(Pid id, const PropertyValue& v)
         m_showIfEntireSystemEmpty = v.toBool();
         break;
     case Pid::VISIBLE:
+        LOGI() << "[VIS-DEBUG] Staff::setProperty(VISIBLE) staff ptr=" << (void*)this
+               << " idx=" << idx() << " id=" << this->id()
+               << " visible=" << v.toBool() << " linked=" << isLinked();
         setVisible(v.toBool());
         masterScore()->rebuildMidiMapping();
         score()->setPlaylistDirty();
