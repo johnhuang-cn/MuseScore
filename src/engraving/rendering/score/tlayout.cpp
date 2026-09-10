@@ -4365,7 +4365,8 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
 
         // Jianpu chord stack: digits stack upward at draw time (see tdraw.cpp,
         // stackStep = 1.4 * digit height); reserve the extra column height so
-        // system spacing clears the top of the stack.
+        // system spacing clears the top of the stack. Polyphonic voices are
+        // rendered on separate rows, so only real chords stack here.
         if (item->chord() && !item->chord()->isGrace() && item->chord()->notes().size() > 1) {
             const std::vector<Note*>& stackNotes = item->chord()->notes();
             int rank = 0;  // 0 = highest pitch

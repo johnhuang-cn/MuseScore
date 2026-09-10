@@ -324,6 +324,16 @@ void TupletLayout::layoutBracket(Tuplet* item, const ChordRest* cr1, const Chord
         const Chord* chord2 = toChord(cr2);
         rightNoteEdge = chord2->up() ? chord2->downNote()->pageBoundingRect().right() : chord2->upNote()->pageBoundingRect().right();
     }
+    // Jianpu: the note bbox reserves extra width for the duration underline
+    // (see TLayout::layoutNote, bboxWidth += spatium * 4 when hooks > 0).
+    // The bracket must close on the last digit itself, so strip that reserve;
+    // otherwise the tail hook (and the centered number) drift one note right.
+    if (cr2->isChord() && cr2->onJianpuStaff()) {
+        const Chord* chord2 = toChord(cr2);
+        if (chord2->durationType().hooks() > 0) {
+            rightNoteEdge -= 4.0 * spatium;
+        }
+    }
 
     if (item->isUp()) {
         if (cr1->isChord()) {
@@ -354,6 +364,15 @@ void TupletLayout::layoutBracket(Tuplet* item, const ChordRest* cr1, const Chord
                 item->p2().rx() = rightNoteEdge + noteRight;
             }
         }
+        // Jianpu: all digits of a voice sit on one row, but octave dots extend
+        // the note bbox upward, which would tilt the bracket (its endpoints are
+        // taken from upNote tops). Keep the bracket horizontal at the highest end.
+        if (cr1->onJianpuStaff()) {
+            const double y = std::min(item->p1().y(), item->p2().y());
+            item->p1().ry() = y;
+            item->p2().ry() = y;
+        }
+
         //
         // special case: one of the bracket endpoints is
         // a rest
@@ -448,6 +467,14 @@ void TupletLayout::layoutBracket(Tuplet* item, const ChordRest* cr1, const Chord
                 item->p2().rx() = rightNoteEdge + noteRight;
             }
         }
+        // Jianpu: mirror of the isUp case - keep the bracket horizontal at the
+        // lowest endpoint (octave dots below extend the note bbox downward).
+        if (cr1->onJianpuStaff()) {
+            const double y = std::max(item->p1().y(), item->p2().y());
+            item->p1().ry() = y;
+            item->p2().ry() = y;
+        }
+
         //
         // special case: one of the bracket endpoints is
         // a rest

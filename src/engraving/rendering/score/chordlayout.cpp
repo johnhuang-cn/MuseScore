@@ -723,6 +723,13 @@ void ChordLayout::layoutJianpu(Chord* item, LayoutContext& ctx)
     // Jianpu: 继承 Chord 的 mag（grace chord 中已包含 graceNoteMag）
     // 这样 note->magS() 才会在前倚音中自动缩小字号
     const double chordMag = item->mag();
+
+    // 简谱多声部：每个声部渲染在独立的行上（voice 0 为基线 y=0，
+    // voice 1 及以下每级下移一行），替代五线谱的多声部纵向偏移逻辑。
+    const double jianpuSpatium = item->staff() ? item->staff()->spatium(item->tick()) : item->spatium();
+    const double jianpuVoiceRowHeight = 3.0 * jianpuSpatium;
+    const int voiceRow = item->track() % VOICES;
+
     for (size_t i = 0; i < numOfNotes; ++i) {
         Note* note = item->notes().at(i);
         note->mutldata()->setMag(chordMag);
@@ -733,8 +740,8 @@ void ChordLayout::layoutJianpu(Chord* item, LayoutContext& ctx)
         if (headWidth < fretWidth) {
             headWidth = fretWidth;
         }
-        // All Jianpu notes sit on the same single line (y=0)
-        note->setPos(0, 0);
+        // Each voice sits on its own Jianpu row (y=0 for voice 0)
+        note->setPos(0, voiceRow * jianpuVoiceRowHeight);
     }
 
     // horiz. spacing
@@ -2351,7 +2358,12 @@ void ChordLayout::layoutChords1(LayoutContext& ctx, Segment* segment, staff_idx_
 
         OffsetInfo offsetInfo = centreChords(segment, posInfo, staffIdx, tick, ctx);
 
-        calculateChordOffsets(segment, staffIdx, tick, offsetInfo, posInfo, ctx);
+        // Jianpu: unison chords across voices must NOT be shifted horizontally
+        // (each voice is rendered on its own row, so digits never overprint);
+        // applyChordOffsets still runs below with the empty offset info.
+        if (!staff->isJianpuStaff(tick)) {
+            calculateChordOffsets(segment, staffIdx, tick, offsetInfo, posInfo, ctx);
+        }
 
         applyChordOffsets(segment, staffIdx, partStartTrack, partEndTrack, offsetInfo, posInfo, ctx);
     }

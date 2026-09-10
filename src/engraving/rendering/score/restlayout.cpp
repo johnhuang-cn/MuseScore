@@ -145,7 +145,10 @@ void RestLayout::layoutRest(const Rest* item, Rest::LayoutData* ldata, const Lay
         }
 
         ldata->setBbox(RectF(0, bboxTop, bboxWidth, bboxBottom - bboxTop));
-        ldata->setPos(0.0, 0.0);
+        // 简谱多声部：休止符与音符一样按声部渲染在独立的行上
+        // （voice 0 为基线 y=0，每级声部下移一行，见 ChordLayout::layoutJianpu）
+        const double voiceRowY = (item->track() % VOICES) * (3.0 * spatium);
+        ldata->setPos(0.0, voiceRowY);
         return;
     }
 
@@ -206,6 +209,13 @@ void RestLayout::fillShape(const Rest* item, Rest::LayoutData* ldata, const Layo
 
 void RestLayout::resolveVerticalRestConflicts(LayoutContext& ctx, Segment* segment, staff_idx_t staffIdx)
 {
+    // Jianpu: voices are rendered on separate rows, so the standard-staff
+    // vertical rest-vs-chord / rest-vs-rest shifting must not apply (it would
+    // pull rests off their voice row).
+    if (ctx.dom().staff(staffIdx)->isJianpuStaff(segment->tick())) {
+        return;
+    }
+
     std::vector<Rest*> rests;
     std::vector<Chord*> chords;
 

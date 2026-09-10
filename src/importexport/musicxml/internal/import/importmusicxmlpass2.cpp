@@ -9059,6 +9059,9 @@ static void addTie(const Notation& notation, Note* note, const track_idx_t track
         Tie* currTie = ties[loc];
         note->setTieFor(currTie);
         currTie->setStartNote(note);
+        // 与其余 tie 创建路径（paste/noteentry/edit/cmd）对齐：
+        // 不设 tick 会让 Spanner::m_tick 保持 -1 哨兵值，下游 tick() 查询出错
+        currTie->setTick(note->tick());
         currTie->setTrack(track);
         currTie->setVisible(notation.visible());
         colorItem(currTie, Color::fromString(notation.attribute(u"color")));
@@ -9091,6 +9094,7 @@ static void addTie(const Notation& notation, Note* note, const track_idx_t track
                 || (startChord && startChord->tick() + startChord->measure()->ticks() >= endChord->tick())) {
                 // only connect if they're in the same bar or no further than a full measure apart
                 currTie->setEndNote(note);
+                currTie->setTick2(note->tick());
                 note->setTieBack(currTie);
             } else {
                 logger->logError(String(u"Intervening note in voice"), xmlreader);

@@ -2468,6 +2468,32 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
             yOffset += graceYShift;
         }
 
+        // Jianpu grace note group: 同一倚音组（graceNotesBefore/After）的多个倚音
+        // 减时线连成一条（类似五线谱符杠分组），这里先定位当前倚音所属的组
+        const GraceNotesGroup* jianpuGraceGroup = nullptr;
+        if (isJianpuGrace) {
+            const EngravingObject* graceParent = item->chord()->explicitParent();
+            if (graceParent && graceParent->isChord()) {
+                const Chord* mainChord = toChord(const_cast<EngravingObject*>(graceParent));
+                const GraceNotesGroup& gnb = mainChord->Chord::graceNotesBefore();
+                const GraceNotesGroup& gna = mainChord->Chord::graceNotesAfter();
+                for (const Chord* gc : gnb) {
+                    if (gc == item->chord()) {
+                        jianpuGraceGroup = &gnb;
+                        break;
+                    }
+                }
+                if (!jianpuGraceGroup) {
+                    for (const Chord* gc : gna) {
+                        if (gc == item->chord()) {
+                            jianpuGraceGroup = &gna;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         // Chord stacking: a multi-note chord renders as a vertical column of
         // digits (highest pitch on top). Columns are BOTTOM-aligned: the lowest
         // digit stays on the note line (level 0) and higher digits stack upward,
@@ -2480,6 +2506,9 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
         double stackShift = 0.0;
         double columnCenterShift = 0.0;
         bool isLowestOfStack = true;
+        // Polyphonic Jianpu renders each voice on its own row (see
+        // ChordLayout::layoutJianpu), so cross-voice digits never overprint:
+        // stacking here only applies to real chords (multiple notes, one voice).
         if (item->chord() && !isJianpuGrace && item->chord()->notes().size() > 1) {
             const std::vector<Note*>& stackNotes = item->chord()->notes();
             const int stackCount = int(stackNotes.size());
@@ -2601,9 +2630,18 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 // 弧线：起点 = grace 数字底部中左；终点 = 主音左上角
                 // 形状：小 L 形弧，凸起方向朝左下（弧顶在起终点连线的左下方）
                 double digitBottomY = -bb.height() * 0.5 + graceYShift + bb.height();
-                // 起点：grace 数字底部中左
+                // 起点：grace 数字底部中左；同组多倚音减时线相连时改为从减时线组右端起弧，
+                // 避免弧线穿过连成的减时线
+                bool connectedGraceGroup = jianpuGraceGroup && jianpuGraceGroup->size() > 1;
                 double curveStartX = startPosX + digitW * 0.35;
                 double curveStartY = digitBottomY;
+                if (connectedGraceGroup) {
+                    int graceHooks = item->chord()->durationType().hooks();
+                    double graceBaseY = -bb.y() - bb.height() * 0.5 + graceYShift + bb.height() * 0.12;
+                    double graceLineSpacing = bb.height() * 0.13;
+                    curveStartX = startPosX + digitW;
+                    curveStartY = graceBaseY + (graceHooks > 0 ? graceHooks - 1 : 0) * graceLineSpacing;
+                }
                 // 终点：主音左上角（主音左缘 ≈ grace 右缘 + 0.8sp，顶部 ≈ -0.5sp）
                 double curveEndX = startPosX + digitW + spatium * 0.8;
                 double curveEndY = -spatium * 0.5;
@@ -2631,7 +2669,8 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
         }
 
         // Draw duration underlines (减时线)
-        // 前倚音仍然绘制减时线（反映其自身时值），但不参与拍号分组，一律走 single-note 分支
+        // 前倚音仍然绘制减时线（反映其自身时值），但不参与主音所在拍的分组：
+        // 改按倚音组分组，同组多个倚音的减时线连成一条
         if (item->chord() && isLowestOfStack) {
             const Chord* chord = item->chord();
             int hooks = chord->durationType().hooks();
@@ -2656,8 +2695,16 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 Fraction beatStart = meas->tick() + Fraction(beatIndex, denom);
                 Fraction beatEnd = beatStart + Fraction(1, denom);
 
-                // grace chord 不在 meas 的 ChordRest 段里，跳过分组搜索，直接走 single-note
-                if (!isJianpuGrace) {
+                // grace chord 不在 meas 的 ChordRest 段里：按倚音组分组
+                if (isJianpuGrace) {
+                    if (jianpuGraceGroup) {
+                        for (const Chord* gc : *jianpuGraceGroup) {
+                            if (gc->durationType().hooks() > 0) {
+                                jianpuCrs.push_back(gc);
+                            }
+                        }
+                    }
+                } else {
                     for (Segment* seg = meas->first(SegmentType::ChordRest); seg;
                          seg = seg->next(SegmentType::ChordRest)) {
                         if (seg->tick() >= beatEnd) break;
@@ -2681,7 +2728,8 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                     }
 
                     // Measure rest "0" digit width once for endpoint calculations
-                    double restDigitW = FontMetrics::width(f, String(u"0")) * item->magS();
+                    // (f already carries magS scaling, do not multiply again)
+                    double restDigitW = FontMetrics::width(f, String(u"0"));
 
                     double thisNotePageX = item->pagePos().x();
                     Pen pen(item->curColor(opt), lineThickness, PenStyle::SolidLine, PenCapStyle::FlatCap);
@@ -2705,7 +2753,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                                 }
                                 if (subEnd->isChord()) {
                                     const Note* ln = toChord(subEnd)->notes().front();
-                                    double digitW = FontMetrics::width(f, ln->fretString()) * item->magS();
+                                    double digitW = FontMetrics::width(f, ln->fretString());
                                     eX = ln->pagePos().x() + ln->ldata()->bbox().x() + digitW - thisNotePageX;
                                 } else {
                                     // Rest: use actual "0" digit width, not extended bbox
@@ -3069,6 +3117,11 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
 
     // Jianpu: draw rest as "0"
     if (item->onJianpuStaff()) {
+        // Invisible (placeholder) rests carry no information on the single
+        // Jianpu line; drawing their "0" would collide with played voices.
+        if (!item->visible()) {
+            return;
+        }
         Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
         double fontSize = 12.0;
         f.setPointSizeF(fontSize * item->magS());
@@ -3080,6 +3133,30 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
         double yOffset = -bb.y() - bb.height() * 0.5;
         // Multi-beat rest: display multiple "0"s for half/whole rests
         DurationType rdtype = item->durationType().type();
+        // A measure rest sharing the measure with played chords on this staff
+        // is a multi-voice placeholder: the Jianpu line shows the played voice
+        // only, so skip the "0" group entirely.
+        if (rdtype == DurationType::V_MEASURE && item->measure()) {
+            bool hasPlayedContent = false;
+            for (const Segment* sg = item->segment(); sg; sg = sg->next()) {
+                if (!(sg->segmentType() & SegmentType::ChordRest)) {
+                    continue;
+                }
+                for (voice_idx_t v = 0; v < VOICES; ++v) {
+                    const EngravingItem* e = sg->element(item->track() + v);
+                    if (e && e != item && e->isChord()) {
+                        hasPlayedContent = true;
+                        break;
+                    }
+                }
+                if (hasPlayedContent) {
+                    break;
+                }
+            }
+            if (hasPlayedContent) {
+                return;
+            }
+        }
         int totalRestBeats = 1;
         int restHooks = 0;  // underlines per "0" when the beat unit is shorter than a quarter
         if (rdtype == DurationType::V_HALF) {
@@ -3130,10 +3207,16 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
                 // Available width from segment position (not element position!)
                 // V_MEASURE rests have large item->x() due to layout centering;
                 // V_HALF/V_WHOLE rests have item->x()=0.
-                const Segment* nextSeg = curSeg->next(SegmentType::ChordRest);
+                // Segments are system-wide: other staves' notes create ChordRest
+                // segments inside this rest's span, so the "0" group must end at
+                // the rest's own end tick (or the measure end), never at the
+                // next ChordRest segment belonging to another staff/voice.
                 double availW;
-                if (nextSeg && nextSeg->measure() == meas) {
-                    availW = nextSeg->x() - curSeg->x();
+                const Segment* endSeg = (rdtype == DurationType::V_MEASURE) ? nullptr
+                    : meas->findSegmentR(SegmentType::ChordRest,
+                                         item->rtick() + item->actualTicks());
+                if (endSeg) {
+                    availW = endSeg->x() - curSeg->x();
                 } else {
                     availW = meas->width() - curSeg->x();
                     availW -= item->spatium() * 1.5;  // barline visual margin

@@ -851,7 +851,9 @@ void SlurTieLayout::slurPos(Slur* item, SlurTiePos* sp, LayoutContext& ctx)
 
     // Jianpu: slur 始终保持水平（利用 up），将两端 Y 统一取更靠上方的值
     // 额外向上抬高 1.2sp，避免 slur 压在简谱数字或高八度点之上
-    if (item->staff() && item->staff()->staffType(item->tick())->isJianpuStaff()) {
+    // 注：用 staffType()（即 staffTypeForElement）而非 staffType(tick)：
+    // spanner 的 m_tick 可能未初始化（-1 哨兵），非 const 重载会断言 abort
+    if (item->staffType() && item->staffType()->isJianpuStaff()) {
         double outerY = item->up() ? std::min(sp->p1.y(), sp->p2.y())
                                    : std::max(sp->p1.y(), sp->p2.y());
         double jianpuLift = (item->up() ? -1.2 : 1.2) * _spatium;
@@ -2202,7 +2204,10 @@ void SlurTieLayout::forceHorizontal(Tie* tie, SlurTiePos& sPos)
     Note* endNote = tie->endNote();
 
     // Jianpu: 所有音符数字都渲染在同一行，不管音高 line 是否一致，tie 都应水平
-    bool isJianpu = tie->staff() && tie->staff()->staffType(tie->tick())->isJianpuStaff();
+    // 注：必须用 staffTypeForElement（内部走 uniqueStaffType 快路径 + findMeasure 兜底）：
+    // tie 的 m_tick 在部分创建路径（如 MusicXML 导入）下保持 -1 哨兵值，
+    // 直接 staffType(tie->tick()) 会命中非 const 重载的 assert(!tick.negative())
+    bool isJianpu = tie->staff() && tie->staff()->staffTypeForElement(tie)->isJianpuStaff();
 
     if (isJianpu
         || (startNote && endNote
