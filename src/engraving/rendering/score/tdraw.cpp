@@ -3133,30 +3133,10 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
         double yOffset = -bb.y() - bb.height() * 0.5;
         // Multi-beat rest: display multiple "0"s for half/whole rests
         DurationType rdtype = item->durationType().type();
-        // A measure rest sharing the measure with played chords on this staff
-        // is a multi-voice placeholder: the Jianpu line shows the played voice
-        // only, so skip the "0" group entirely.
-        if (rdtype == DurationType::V_MEASURE && item->measure()) {
-            bool hasPlayedContent = false;
-            for (const Segment* sg = item->segment(); sg; sg = sg->next()) {
-                if (!(sg->segmentType() & SegmentType::ChordRest)) {
-                    continue;
-                }
-                for (voice_idx_t v = 0; v < VOICES; ++v) {
-                    const EngravingItem* e = sg->element(item->track() + v);
-                    if (e && e != item && e->isChord()) {
-                        hasPlayedContent = true;
-                        break;
-                    }
-                }
-                if (hasPlayedContent) {
-                    break;
-                }
-            }
-            if (hasPlayedContent) {
-                return;
-            }
-        }
+        // NOTE: a measure rest that shares the measure with played chords belongs
+        // to a separate voice. Jianpu renders each voice on its own row (see the
+        // voice-row offsets in RestLayout / ChordLayout), so the "0" group is drawn
+        // on the rest's own voice row instead of being skipped.
         int totalRestBeats = 1;
         int restHooks = 0;  // underlines per "0" when the beat unit is shorter than a quarter
         if (rdtype == DurationType::V_HALF) {
