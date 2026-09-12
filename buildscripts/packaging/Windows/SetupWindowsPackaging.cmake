@@ -8,7 +8,13 @@ include(InstallRequiredSystemLibraries)
 
 set(CPACK_PACKAGE_NAME ${MUSE_APP_NAME})
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "MuseScore is a full featured WYSIWYG score editor")
-set(CPACK_PACKAGE_VENDOR "MuseScore Limited. 简谱功能 © 2026 mscore.xdevelop.net，基于 MuseScore Studio 修改。")
+# NOTE: Must stay ASCII-only. This value is injected into the WiX installer as
+# Product/@Manufacturer (see buildscripts/packaging/Windows/Installer/WIX.template.in).
+# The installer uses Language="1033" (code page 1252); non-ASCII characters such as
+# Chinese text cannot be encoded there and make WiX light.exe fail with
+# "Fatal WiX Generator Error". Keep the full GPL-3 modification notice (Chinese) in
+# the runtime About dialog (AboutDialog.qml) and the macOS bundle copyright instead.
+set(CPACK_PACKAGE_VENDOR "MuseScore Limited. Jianpu Edition (C) 2026 mscore.xdevelop.net, modified from MuseScore Studio.")
 set(CPACK_PACKAGE_CONTACT "https://musescore.org")
 set(CPACK_PACKAGE_HOMEPAGE_URL "https://musescore.org")
 
