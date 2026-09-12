@@ -138,7 +138,7 @@ StyledDialogView {
 
             StyledTextLabel {
                 Layout.fillWidth: true
-                text: qsTrc("appshell/about", "Copyright © 1999-2026 MuseScore Limited.\nPublished under the <a href=\"%1\">GNU General Public License version 3</a>.")
+                text: qsTrc("appshell/about", "Copyright © 1999-2026 MuseScore Limited.\n简谱功能 © 2026 mscore.xdevelop.net，基于 MuseScore Studio 修改。\nPublished under the <a href=\"%1\">GNU General Public License version 3</a>.")
                       .arg("https://www.gnu.org/licenses/gpl-3.0.html")
                       .replace("\n", "<br>")
 
