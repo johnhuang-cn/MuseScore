@@ -75,7 +75,54 @@ if $DO_SIGN; then
     echo "spctl"
     spctl --assess --type execute -vvv "${APP_PATH}"
 else
-    echo "Skipping code signing"
+    # No Developer ID certificate is available (e.g. in forks, which do not
+    # inherit the signing secrets). The bundle still has to be signed, or the
+    # app is effectively broken on macOS:
+    #
+    # The CI builds a universal binary (CMAKE_OSX_ARCHITECTURES in
+    # buildscripts/ci/macos/build.sh), but the linker only applies an ad-hoc
+    # signature to the slice for the host architecture, and the Qt frameworks
+    # built from source are not signed at all. A universal bundle with any
+    # unsigned slice is rejected as a whole -- codesign reports "code object is
+    # not signed at all" -- so TCC cannot compute a code requirement for the
+    # process. Every access to the data directory under ~/Documents then fails
+    # to match the stored requirement, and the "wants to access files in your
+    # Documents folder" prompt repeats endlessly, because the permission that
+    # the user grants can never be matched again.
+    echo "No signing certificate; applying ad-hoc signature"
+
+    # Sign all nested code first, so that every architecture slice of the
+    # deployed Qt frameworks and plugins carries a valid signature.
+    echo "Ad-hoc sign nested code"
+    codesign --force --deep --sign - \
+        --options runtime \
+        "${APP_PATH}"
+
+    # --deep does not carry entitlements over to nested code, so re-sign the
+    # appex explicitly to keep it sandboxed. The signing identifier is read
+    # from the appex Info.plist by codesign itself.
+    echo "Re-sign appex"
+    codesign --force --sign - \
+        --options runtime \
+        --entitlements "src/macos_integration/entitlements.plist" \
+        "${APP_PATH}/Contents/PlugIns/MuseScoreQuickLookPreviewExtension.appex"
+
+    # Re-sign the main bundle without --deep, to seal the appex signed above.
+    # codesign takes the identifier from CFBundleIdentifier, which keeps the
+    # TCC records aligned with the bundle id rather than the executable name.
+    echo "Re-sign main app"
+    codesign --force --sign - \
+        --options runtime \
+        --entitlements "buildscripts/packaging/macOS/entitlements.plist" \
+        "${APP_PATH}"
+
+    echo "Codesign verify"
+    codesign --verify --deep --strict --verbose=2 "${APP_PATH}"
+
+    # No spctl assessment here on purpose: an ad-hoc signature can never be
+    # notarized, so it would always be rejected and abort the packaging via the
+    # ERR trap. Recipients have to drop the quarantine attribute instead:
+    #   xattr -dr com.apple.quarantine "/Applications/<app name>.app"
 fi
 
 ################################################################
