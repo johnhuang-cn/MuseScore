@@ -63,7 +63,11 @@ void MuseSoundsConfiguration::init()
 
 bool MuseSoundsConfiguration::needCheckForMuseSoundsUpdate() const
 {
-    return settings()->value(CHECK_FOR_MUSESOUNDS_UPDATE_KEY).toBool();
+    //! NOTE: Jianpu edition - MuseSounds update checking is permanently disabled.
+    //! updates.musescore.org is unreachable in our deployment, and its 30s transfer-timeout
+    //! path triggers a use-after-free crash (the NetworkManager is destroyed inside the
+    //! reply's own finished() callback). Never issue the request.
+    return false;
 }
 
 RequestHeaders MuseSoundsConfiguration::headers() const

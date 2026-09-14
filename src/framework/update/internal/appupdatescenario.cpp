@@ -43,6 +43,12 @@ bool AppUpdateScenario::needCheckForUpdate() const
 
 void AppUpdateScenario::checkForUpdate(bool manual)
 {
+    //! NOTE: Jianpu edition - update checking is disabled. This also guards the manual
+    //! "check-update" action, which bypasses the needCheckForUpdate() gate at startup.
+    if (!needCheckForUpdate()) {
+        return;
+    }
+
     if (m_checkInProgress) {
         return;
     }

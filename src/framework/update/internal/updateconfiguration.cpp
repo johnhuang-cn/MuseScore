@@ -74,7 +74,11 @@ void UpdateConfiguration::setAllowUpdateOnPreRelease(bool allow)
 
 bool UpdateConfiguration::needCheckForUpdate() const
 {
-    return settings()->value(CHECK_FOR_UPDATE_KEY).toBool();
+    //! NOTE: Jianpu edition - application update checking is permanently disabled.
+    //! The update server (updates.musescore.org) is unreachable in our deployment, and its
+    //! 30s transfer-timeout path triggers a use-after-free crash (the NetworkManager gets
+    //! destroyed inside the reply's own finished() callback). Never issue the request.
+    return false;
 }
 
 void UpdateConfiguration::setNeedCheckForUpdate(bool needCheck)

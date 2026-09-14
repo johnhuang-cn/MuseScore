@@ -41,6 +41,11 @@ bool MuseSoundsCheckUpdateScenario::needCheckForUpdate() const
 
 void MuseSoundsCheckUpdateScenario::checkForUpdate(bool manual)
 {
+    //! NOTE: Jianpu edition - update checking is disabled; never issue the update request.
+    if (!needCheckForUpdate()) {
+        return;
+    }
+
     if (m_checkInProgress) {
         return;
     }
