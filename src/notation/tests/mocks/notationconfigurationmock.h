@@ -72,6 +72,12 @@ public:
     MOCK_METHOD(void, setOnlyInvertInDarkTheme, (bool), (override));
     MOCK_METHOD(muse::async::Notification, isOnlyInvertInDarkThemeChanged, (), (const, override));
 
+    MOCK_METHOD(QString, jianpuFontFamily, (), (const, override));
+    MOCK_METHOD(void, setJianpuFontFamily, (const QString&), (override));
+    MOCK_METHOD(int, jianpuFontSize, (), (const, override));
+    MOCK_METHOD(void, setJianpuFontSize, (int), (override));
+    MOCK_METHOD(muse::async::Notification, jianpuFontChanged, (), (const, override));
+
     MOCK_METHOD(QColor, borderColor, (), (const, override));
     MOCK_METHOD(int, borderWidth, (), (const, override));
 

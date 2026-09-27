@@ -68,5 +68,7 @@ private:
 
     ValCh<bool> m_isEngineRunning;
     ValCh<bool> m_isAudioStarted;
+    // Main-thread state: EngineInit may be queued but not acknowledged yet.
+    bool m_audioInitPending = false;
 };
 }

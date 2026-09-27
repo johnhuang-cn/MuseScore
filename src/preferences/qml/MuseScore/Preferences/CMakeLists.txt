@@ -96,6 +96,7 @@ qt_add_qml_module(preferences_qml
         internal/FoldersSection.qml
         internal/ImportStyleSection.qml
         internal/IncrementalPropertyControlWithTitle.qml
+        internal/JianpuTextSection.qml
         internal/KeyboardLayoutsSection.qml
         internal/LanguagesSection.qml
         internal/MeiSection.qml

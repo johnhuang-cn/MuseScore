@@ -262,9 +262,11 @@ void StartAudioController::startAudioProcessing(const IApplication::RunMode& mod
         activeSpec = requiredSpec;
     }
 
+    m_audioInitPending = true;
     AudioEngineConfig conf = configuration()->engineConfig();
     auto sendEngineInit = [this, activeSpec, conf]() {
         m_rpcChannel->send(rpc::make_request(Method::EngineInit, RpcPacker::pack(activeSpec.output, conf)), [this](const Msg&) {
+            m_audioInitPending = false;
             m_isAudioStarted.set(true);
         });
     };
@@ -283,6 +285,15 @@ void StartAudioController::startAudioProcessing(const IApplication::RunMode& mod
 void StartAudioController::stopAudioProcessing()
 {
 #ifndef Q_OS_WASM
+    // Synchronous converters can finish before the main RPC ticker delivers
+    // EngineInit acknowledgement. Drain it before deciding whether to deinit.
+    while (m_audioInitPending) {
+        m_rpcChannel->process();
+        if (m_audioInitPending) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
     if (m_isAudioStarted.val) {
         m_rpcChannel->send(rpc::make_request(Method::EngineDeinit), [this](const Msg&) {
             m_isAudioStarted.set(false);

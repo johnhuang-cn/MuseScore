@@ -20,6 +20,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "slurtielayout.h"
+#include "jianpufont.h"
 
 #include "iengravingfont.h"
 
@@ -480,8 +481,7 @@ void SlurTieLayout::slurPos(Slur* item, SlurTiePos* sp, LayoutContext& ctx)
         if (note && note->staff() && note->staff()->staffType(note->tick())->isJianpuStaff()) {
             const String& numStr = note->fretString();
             if (!numStr.empty()) {
-                Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-                f.setPointSizeF(12.0);
+                Font f = jianpuFont(note);
                 return FontMetrics::width(f, numStr) * note->magS();
             }
         }
@@ -1737,8 +1737,7 @@ PointF SlurTieLayout::computeDefaultStartOrEndPoint(const Tie* tie, Grip startOr
     if (note->staff() && note->staff()->staffType(note->tick())->isJianpuStaff()) {
         const String& numStr = note->fretString();
         if (!numStr.empty()) {
-            Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-            f.setPointSizeF(12.0);
+            Font f = jianpuFont(note);
             noteWidth = FontMetrics::width(f, numStr) * note->magS();
         }
     }
@@ -1771,8 +1770,7 @@ double SlurTieLayout::noteOpticalCenterForTie(const Note* note, bool up)
     if (note->staff() && note->staff()->staffType(note->tick())->isJianpuStaff()) {
         const String& numStr = note->fretString();
         if (!numStr.empty()) {
-            Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-            f.setPointSizeF(12.0);
+            Font f = jianpuFont(note);
             double digitWidth = FontMetrics::width(f, numStr) * note->magS();
             return digitWidth * 0.5;
         }

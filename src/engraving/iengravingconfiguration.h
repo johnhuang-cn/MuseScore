@@ -52,6 +52,9 @@ public:
     virtual bool canLayoutIcons() const = 0;
     virtual String iconsFontFamily() const = 0;
 
+    virtual String jianpuFontFamily() const = 0;
+    virtual double jianpuFontSize() const = 0;
+
     virtual Color defaultColor() const = 0;
     virtual Color scoreInversionColor() const = 0;
     virtual Color lassoColor() const = 0;

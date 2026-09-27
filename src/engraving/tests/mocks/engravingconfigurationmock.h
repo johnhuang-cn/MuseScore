@@ -45,6 +45,9 @@ public:
     MOCK_METHOD(bool, canLayoutIcons, (), (const, override));
     MOCK_METHOD(String, iconsFontFamily, (), (const, override));
 
+    MOCK_METHOD(String, jianpuFontFamily, (), (const, override));
+    MOCK_METHOD(double, jianpuFontSize, (), (const, override));
+
     MOCK_METHOD(Color, defaultColor, (), (const, override));
     MOCK_METHOD(Color, scoreInversionColor, (), (const, override));
     MOCK_METHOD(Color, lassoColor, (), (const, override));

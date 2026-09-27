@@ -82,6 +82,12 @@ public:
     virtual void setOnlyInvertInDarkTheme(bool value) = 0;
     virtual muse::async::Notification isOnlyInvertInDarkThemeChanged() const = 0;
 
+    virtual QString jianpuFontFamily() const = 0;
+    virtual void setJianpuFontFamily(const QString& family) = 0;
+    virtual int jianpuFontSize() const = 0;
+    virtual void setJianpuFontSize(int size) = 0;
+    virtual muse::async::Notification jianpuFontChanged() const = 0;
+
     virtual QColor borderColor() const = 0;
     virtual int borderWidth() const = 0;
 

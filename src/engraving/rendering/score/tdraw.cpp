@@ -20,6 +20,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "tdraw.h"
+#include "jianpufont.h"
 
 #include "defer.h"
 
@@ -62,6 +63,7 @@
 
 #include "dom/glissando.h"
 #include "dom/gradualtempochange.h"
+#include "dom/groups.h"
 #include "dom/guitarbend.h"
 
 #include "dom/hairpin.h"
@@ -2158,8 +2160,13 @@ void TDraw::draw(const KeySig* item, Painter* painter, const PaintOptions& opt)
             }
         }
 
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        // 仅在首小节与转调小节渲染；每行行首重复的 "1=X" 不显示
+        if (!jianpuKeySigVisible(item)) {
+            return;
+        }
+
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         f.setPointSizeF(fontSize * item->magS());
 
         // 简谱调号显示区分两种模式：
@@ -2450,8 +2457,8 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
     }
     // Jianpu (numbered musical notation)
     else if (isJianpuStaff) {
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         f.setPointSizeF(fontSize * item->magS());
         painter->setFont(f);
 
@@ -2528,38 +2535,22 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
 
         // Draw accidental symbol at top-left of the digit using SMuFL glyph (same as standard staff).
         // Accidental is drawn to the LEFT of startPosX (may overflow bbox).
-        // For Jianpu we use the effective alter computed in tlayout (stored on the note),
-        // which accounts for key-signature-implied accidentals (e.g. F# in G major).
-        AccidentalType accType;
-        {
-            int jpAlter = item->jianpuAlter();
-            switch (jpAlter) {
+        // The digit keeps its sounding pitch through the measure, but the
+        // accidental glyph is printed only where an Accidental is attached.
+        // Drawing jianpuAlter() on every note repeats #/b after the first note.
+        AccidentalType accType = AccidentalType::NONE;
+        const Accidental* acc = item->accidental();
+        if (acc && acc->visible()) {
+            // Western notation may call B-natural in 1=F a natural, while
+            // Jianpu writes it as #4. Use the relative alteration for the
+            // displayed symbol; zero means an explicit cancellation (natural).
+            switch (item->jianpuAlter()) {
             case -2: accType = AccidentalType::FLAT2; break;
-            case -1: accType = AccidentalType::FLAT;  break;
+            case -1: accType = AccidentalType::FLAT; break;
+            case  0: accType = AccidentalType::NATURAL; break;
             case  1: accType = AccidentalType::SHARP; break;
             case  2: accType = AccidentalType::SHARP2; break;
-            default: accType = AccidentalType::NONE; break;
-            }
-        }
-        // A cancellation accidental attached to the note must still be rendered in
-        // Jianpu even when the effective alter is 0: e.g. a natural that cancels a
-        // previous sharp/flat within the measure. Note::updateAccidental() (run for
-        // Jianpu staves too, see Chord::cmdUpdateNotes) creates the Accidental
-        // element automatically, but jianpuAlter() alone would drop it (alter == 0).
-        if (accType == AccidentalType::NONE) {
-            const Accidental* acc = item->accidental();
-            if (acc && acc->visible()) {
-                switch (acc->accidentalType()) {
-                case AccidentalType::NATURAL:
-                case AccidentalType::SHARP:
-                case AccidentalType::FLAT:
-                case AccidentalType::SHARP2:
-                case AccidentalType::FLAT2:
-                    accType = acc->accidentalType();
-                    break;
-                default:
-                    break;
-                }
+            default: break;
             }
         }
         if (accType != AccidentalType::NONE) {
@@ -2681,19 +2672,53 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 double lineThickness = bb.height() * 0.06;
                 double lineSpacing = bb.height() * 0.13;
 
-                // Pure beat-based grouping: one beat = one underline group.
-                // In Jianpu, never connect across beat boundaries.
+                // One staff beam group = one underline group; never connect
+                // across group boundaries.
+                // x/8 meters follow the staff beaming groups (Groups table or
+                // custom timesig groups): 5/8 -> 3+2, 7/8 -> 3+2+2, 6/8 -> 3+3,
+                // 9/8 -> 3+3+3, ...; the 8th-level beam begins (action nibble
+                // 1) mark the underline group boundaries.
+                // Other denominators keep one beat = one group, with compound
+                // meters (6/16, 9/16, ...) taking the dotted unit (3/denom).
                 track_idx_t jianpuTrack = chord->track();
                 std::vector<const ChordRest*> jianpuCrs;
 
                 const Measure* meas = chord->measure();
                 TimeSig* ts = item->staff()->timeSig(chord->tick());
+                int num = ts ? ts->numerator() : 4;
                 int denom = ts ? ts->denominator() : 4;
-                int ticksPerBeat = Fraction(1, denom).ticks();
-                int relTicks = (chord->tick() - meas->tick()).ticks();
-                int beatIndex = relTicks / ticksPerBeat;
-                Fraction beatStart = meas->tick() + Fraction(beatIndex, denom);
-                Fraction beatEnd = beatStart + Fraction(1, denom);
+                const int relTicks = (chord->tick() - meas->tick()).ticks();
+                int groupStartTicks = 0;
+                int groupEndTicks = (meas->endTick() - meas->tick()).ticks();
+                if (denom == 8) {
+                    const Staff* srcStaff = item->staff()->primaryStaff();
+                    if (!srcStaff) {
+                        srcStaff = item->staff();
+                    }
+                    const Groups& groups = srcStaff->group(chord->tick());
+                    const int dm = Constants::DIVISION / 8;  // node pos unit: 32nd ticks
+                    for (const GroupNode& n : groups.nodes()) {
+                        if ((n.action & 0xf) != 1) {
+                            continue;  // not an 8th-level beam begin
+                        }
+                        const int posTicks = n.pos * dm;
+                        if (posTicks <= relTicks) {
+                            groupStartTicks = posTicks;
+                        } else {
+                            groupEndTicks = posTicks;
+                            break;
+                        }
+                    }
+                } else {
+                    bool compoundBeat = (num % 3 == 0 && num > 3) || (num == 3 && denom >= 8);
+                    Fraction beatLen = compoundBeat ? Fraction(3, denom) : Fraction(1, denom);
+                    const int ticksPerBeat = beatLen.ticks();
+                    const int beatIndex = relTicks / ticksPerBeat;
+                    groupStartTicks = beatIndex * ticksPerBeat;
+                    groupEndTicks = groupStartTicks + ticksPerBeat;
+                }
+                const Fraction beatStart = meas->tick() + Fraction::fromTicks(groupStartTicks);
+                const Fraction beatEnd = meas->tick() + Fraction::fromTicks(groupEndTicks);
 
                 // grace chord 不在 meas 的 ChordRest 段里：按倚音组分组
                 if (isJianpuGrace) {
@@ -2782,9 +2807,9 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
         // Draw octave dots above/below the digit.
         // octaveOffset: 0=middle octave, +N=N dots above, -N=N dots below
         //   Fixed Do: 中音区 = C4..B4 (pitch/12-5 == 0)
-        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)；主音取中央C下方
-        //   小三度起的一个八度（A3..G#4）——简谱惯例调式顺序 A B C D E F G：
-        //   A/bB/B 的 do 落在中央C下方（1=bB 的 do = C调低音b7），其余在上方。
+        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)，主音取中央C所在八度
+        //   （tonicMidi = 60+chroma ∈ [60,71]），即各调中音主音 1 均不带八度点。
+        //   注意：不可对 A/bB/B 调做 -12 特判，否则中音主音会被画到较低八度。
         {
             int pitch = item->pitch();
             const bool isFixedDo = staffType && (staffType->type() == StaffTypes::JIANPU_FIXED);
@@ -2801,9 +2826,6 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 int keyIdx = int(effKey) + 7;
                 if (keyIdx < 0 || keyIdx > 14) { keyIdx = 7; }
                 int tonicMidi = 60 + keyToChroma[keyIdx];
-                if (tonicMidi > 68) {  // A4/Bb4/B4 -> A3/Bb3/B3
-                    tonicMidi -= 12;
-                }
                 int diff = pitch - tonicMidi;
                 octaveOffset = (diff >= 0) ? (diff / 12) : -((-diff + 11) / 12);
             }
@@ -2928,7 +2950,9 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 double dotRadius = bb.height() * 0.07;
                 double dotGap = bb.height() * 0.18;
                 // one dot per digit: each stacked note dots its own level
-                double dotCY = yOffset + bb.y() + bb.height() * 0.5;
+                // Jianpu print convention: the augmentation dot sits low,
+                // near the digit baseline (~3/4 down), not at mid-height.
+                double dotCY = yOffset + bb.y() + bb.height() * 0.75;
                 painter->save();
                 painter->setPen(Pen(item->curColor(opt), 0.0));
                 painter->setBrush(Brush(item->curColor(opt)));
@@ -3122,8 +3146,8 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
         if (!item->visible()) {
             return;
         }
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         f.setPointSizeF(fontSize * item->magS());
         painter->setFont(f);
 
@@ -3249,7 +3273,8 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
         if (item->dots() > 0 && totalRestBeats == 1) {
             double dotRadius = bb.height() * 0.07;
             double dotGap = bb.height() * 0.18;
-            double dotCY = yOffset + bb.y() + bb.height() * 0.5;
+            // Same low placement as the note augmentation dot (~3/4 down).
+            double dotCY = yOffset + bb.y() + bb.height() * 0.75;
             painter->save();
             painter->setPen(Pen(item->curColor(opt), 0.0));
             painter->setBrush(Brush(item->curColor(opt)));
@@ -3917,8 +3942,8 @@ void TDraw::draw(const TimeSig* item, Painter* painter, const PaintOptions& opt)
 
     // ── 简谱分支：绘制 "1=X  N/M" 格式的调号+拍号 ──
     if (item->onJianpuStaff()) {
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         f.setPointSizeF(fontSize * item->magS());
 
         // --- 调号 "1=X" ---
@@ -3961,7 +3986,7 @@ void TDraw::draw(const TimeSig* item, Painter* painter, const PaintOptions& opt)
         String denStr = String::number(item->denominator());
 
         // 使用较小字号绘制拍号分数
-        Font fSmall(Font::FontFamily(u"Edwin"), Font::Type::Text);
+        Font fSmall = jianpuFont(item);
         double tsScale = 0.9;
         fSmall.setPointSizeF(fontSize * item->magS() * tsScale);
 

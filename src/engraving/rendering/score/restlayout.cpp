@@ -21,6 +21,7 @@
  */
 
 #include "restlayout.h"
+#include "jianpufont.h"
 
 #include "beamlayout.h"
 #include "chordlayout.h"
@@ -120,8 +121,8 @@ void RestLayout::layoutRest(const Rest* item, Rest::LayoutData* ldata, const Lay
     // Jianpu: rest displayed as "0"
     if (stt && stt->isJianpuStaff()) {
         using namespace muse::draw;
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         double mags = item->magS();
         f.setPointSizeF(fontSize);
 
@@ -781,8 +782,8 @@ double RestLayout::jianpuRestGroupMinWidth(const Rest* item)
             beats += cur;
         }
     }
-    draw::Font f(draw::Font::FontFamily(u"Edwin"), draw::Font::Type::Text);
-    f.setPointSizeF(12.0 * item->magS());
+    draw::Font f = jianpuFont(item);
+    f.setPointSizeF(f.pointSizeF() * item->magS());
     const double textW = draw::FontMetrics::width(f, String(u"0"));
     const double minSpacing = textW * 3.0;
     return (beats - 1) * minSpacing + textW;

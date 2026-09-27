@@ -2208,6 +2208,10 @@ const std::array<StyleDef::StyleValue, size_t(Sid::STYLES)> StyleDef::styleValue
     styleDef(palmMuteBeginFilledArrowWidth,              0.85_sp),
     styleDef(palmMuteEndFilledArrowHeight,               1.0_sp),
     styleDef(palmMuteEndFilledArrowWidth,                0.85_sp),
+    styleDef(jianpuFontFace,                             PropertyValue(String(u"Arial"))),
+    styleDef(jianpuFontSize,                             12.0),
+    styleDef(jianpuFontBold,                             false),
+    styleDef(jianpuFontItalic,                           false),
 } };
 
 #undef styleDef

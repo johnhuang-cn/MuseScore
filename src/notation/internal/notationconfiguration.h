@@ -86,6 +86,12 @@ public:
     void setOnlyInvertInDarkTheme(bool value) override;
     muse::async::Notification isOnlyInvertInDarkThemeChanged() const override;
 
+    QString jianpuFontFamily() const override;
+    void setJianpuFontFamily(const QString& family) override;
+    int jianpuFontSize() const override;
+    void setJianpuFontSize(int size) override;
+    muse::async::Notification jianpuFontChanged() const override;
+
     QColor borderColor() const override;
     int borderWidth() const override;
 
@@ -242,6 +248,7 @@ private:
     muse::async::Notification m_foregroundChanged;
     muse::async::Notification m_scoreInversionChanged;
     muse::async::Notification m_isOnlyInvertInDarkThemeChanged;
+    muse::async::Notification m_jianpuFontChanged;
 
     muse::async::Notification m_defaultNoteInputMethodChanged;
     muse::async::Notification m_addAccidentalDotsArticulationsToNextNoteEnteredChanged;

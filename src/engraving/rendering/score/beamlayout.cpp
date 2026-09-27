@@ -20,6 +20,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "beamlayout.h"
+#include "jianpufont.h"
 
 #include <unordered_map>
 #include <set>
@@ -129,9 +130,9 @@ void BeamLayout::layout(Beam* item, const LayoutContext& ctx)
                 }
             }
 
-            Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
+            Font f = jianpuFont(shapeElements.front());
             double magS = shapeElements.front()->magS();
-            f.setPointSizeF(12.0 * magS);
+            f.setPointSizeF(f.pointSizeF() * magS);
             RectF bb = FontMetrics::boundingRect(f, String(u"1"));
 
             double baseYOffset = (-bb.y() - bb.height() * 0.5) + bb.height() * 0.12;

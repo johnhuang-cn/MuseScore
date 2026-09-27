@@ -2226,6 +2226,12 @@ enum class Sid : short {
     palmMuteEndFilledArrowHeight,
     palmMuteEndFilledArrowWidth,
 
+    // Numbered notation font; independent of staff-notation music fonts.
+    jianpuFontFace,
+    jianpuFontSize,
+    jianpuFontBold,
+    jianpuFontItalic,
+
     STYLES
 };
 

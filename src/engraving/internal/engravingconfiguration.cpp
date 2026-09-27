@@ -55,6 +55,9 @@ static const Settings::Key FRETBOARD_DIAGRAMS_AUTO_UPDATE("engraving", "score/fr
 
 static const Settings::Key DO_NOT_SAVE_EIDS_FOR_BACK_COMPAT("engraving", "engraving/compat/doNotSaveEIDsForBackCompat");
 
+static const Settings::Key JIANPU_FONT_FAMILY("engraving", "engraving/jianpuFontFamily");
+static const Settings::Key JIANPU_FONT_SIZE("engraving", "engraving/jianpuFontSize");
+
 struct VoiceColor {
     Settings::Key key;
     Color color;
@@ -157,6 +160,14 @@ void EngravingConfiguration::init()
     settings()->setDefaultValue(DO_NOT_SAVE_EIDS_FOR_BACK_COMPAT, Val(false));
     settings()->setDescription(DO_NOT_SAVE_EIDS_FOR_BACK_COMPAT, muse::trc("engraving", "Do not save EIDs"));
     settings()->setCanBeManuallyEdited(DO_NOT_SAVE_EIDS_FOR_BACK_COMPAT, false);
+
+    settings()->setDefaultValue(JIANPU_FONT_FAMILY, Val(String(u"Arial").toStdString()));
+    settings()->setDescription(JIANPU_FONT_FAMILY, muse::trc("engraving", "Jianpu font family"));
+    settings()->setCanBeManuallyEdited(JIANPU_FONT_FAMILY, true);
+
+    settings()->setDefaultValue(JIANPU_FONT_SIZE, Val(12.0));
+    settings()->setDescription(JIANPU_FONT_SIZE, muse::trc("engraving", "Jianpu font size"));
+    settings()->setCanBeManuallyEdited(JIANPU_FONT_SIZE, true);
 }
 
 muse::io::path_t EngravingConfiguration::appDataPath() const
@@ -240,6 +251,16 @@ bool EngravingConfiguration::canLayoutIcons() const
 muse::String EngravingConfiguration::iconsFontFamily() const
 {
     return uiConfiguration() ? String::fromStdString(uiConfiguration()->iconsFontFamily()) : String();
+}
+
+muse::String EngravingConfiguration::jianpuFontFamily() const
+{
+    return String::fromStdString(settings()->value(JIANPU_FONT_FAMILY).toString());
+}
+
+double EngravingConfiguration::jianpuFontSize() const
+{
+    return settings()->value(JIANPU_FONT_SIZE).toDouble();
 }
 
 Color EngravingConfiguration::defaultColor() const

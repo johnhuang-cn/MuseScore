@@ -51,6 +51,9 @@ class AppearancePreferencesModel : public QObject, public muse::Contextable, pub
     Q_PROPERTY(int currentFontIndex READ currentFontIndex WRITE setCurrentFontIndex NOTIFY currentFontIndexChanged)
     Q_PROPERTY(int bodyTextSize READ bodyTextSize WRITE setBodyTextSize NOTIFY bodyTextSizeChanged)
 
+    Q_PROPERTY(int currentJianpuFontIndex READ currentJianpuFontIndex WRITE setCurrentJianpuFontIndex NOTIFY currentJianpuFontIndexChanged)
+    Q_PROPERTY(int jianpuTextSize READ jianpuTextSize WRITE setJianpuTextSize NOTIFY jianpuTextSizeChanged)
+
     Q_PROPERTY(bool backgroundUseColor READ backgroundUseColor WRITE setBackgroundUseColor NOTIFY backgroundUseColorChanged)
     Q_PROPERTY(QColor backgroundColor READ backgroundColor WRITE setBackgroundColor NOTIFY backgroundColorChanged)
     Q_PROPERTY(
@@ -97,6 +100,9 @@ public:
     int currentFontIndex() const;
     int bodyTextSize() const;
 
+    int currentJianpuFontIndex() const;
+    int jianpuTextSize() const;
+
     bool backgroundUseColor() const;
     QColor backgroundColor() const;
     QString backgroundWallpaperPath() const;
@@ -122,6 +128,8 @@ public slots:
     void setCurrentAccentColorIndex(int index);
     void setCurrentFontIndex(int index);
     void setBodyTextSize(int size);
+    void setCurrentJianpuFontIndex(int index);
+    void setJianpuTextSize(int size);
     void setBackgroundUseColor(bool value);
     void setBackgroundColor(const QColor& color);
     void setBackgroundWallpaperPath(const QString& path);
@@ -136,6 +144,8 @@ signals:
     void themesChanged();
     void currentFontIndexChanged();
     void bodyTextSizeChanged();
+    void currentJianpuFontIndexChanged();
+    void jianpuTextSizeChanged();
     void backgroundUseColorChanged();
     void backgroundColorChanged();
     void backgroundWallpaperPathChanged();

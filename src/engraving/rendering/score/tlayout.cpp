@@ -22,6 +22,7 @@
 #include <cfloat>
 
 #include "tlayout.h"
+#include "jianpufont.h"
 
 #include "global/realfn.h"
 #include "global/types/number.h"
@@ -3523,9 +3524,15 @@ void TLayout::layoutKeySig(const KeySig* item, KeySig::LayoutData* ldata, const 
             }
         }
 
+        // 仅在首小节与转调小节占位；每行行首重复的调号不预留宽度
+        if (!jianpuKeySigVisible(item)) {
+            ldata->setShape(Shape());
+            return;
+        }
+
         // 计算 "1=X" 文字 bbox
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         f.setPointSizeF(fontSize * item->magS());
 
         // 简谱调号显示区分两种模式：
@@ -4294,8 +4301,8 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
         const_cast<Note*>(item)->setFretString(numberStr);
 
         // Use a standard font for Jianpu numbers
-        Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-        double fontSize = 12.0;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
         f.setPointSizeF(fontSize);
         double mags = item->magS();
 
@@ -4318,17 +4325,14 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
         // Reserve space for octave dots above/below the digit.
         // octaveOffset: 0=middle octave, +N=N dots above, -N=N dots below
         //   Fixed Do: 中音区 = C4..B4 (pitch/12-5 == 0)
-        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)；主音取中央C下方
-        //   小三度起的一个八度（A3..G#4）——简谱惯例调式顺序 A B C D E F G：
-        //   A/bB/B 的 do 落在中央C下方（1=bB 的 do = C调低音b7），其余在上方。
+        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)，主音取中央C所在八度
+        //   （tonicMidi = 60+tonicChroma ∈ [60,71]），即各调中音主音 1 均不带八度点。
+        //   注意：不可对 A/bB/B 调做 -12 特判，否则中音主音会被画到较低八度。
         int octaveOffset;
         if (isFixedDo) {
             octaveOffset = pitch / 12 - 5; // C4 pitch=60 → 0
         } else {
             int tonicMidi = 60 + tonicChroma;
-            if (tonicMidi > 68) {  // A4/Bb4/B4 -> A3/Bb3/B3
-                tonicMidi -= 12;
-            }
             int diff = pitch - tonicMidi;
             octaveOffset = (diff >= 0) ? (diff / 12) : -((-diff + 11) / 12);
         }
@@ -6428,8 +6432,8 @@ void TLayout::layoutTimeSig(const TimeSig* item, TimeSig::LayoutData* ldata, con
             ldata->ds.clear();
 
             // 与 draw() 中的简谱 TimeSig 绘制逻辑保持一致的参数
-            Font f(Font::FontFamily(u"Edwin"), Font::Type::Text);
-            double fontSize = 12.0;
+            Font f = jianpuFont(item);
+            double fontSize = f.pointSizeF();
             f.setPointSizeF(fontSize * item->magS());
 
             // 调号 "1=X"：与 KeySig 逻辑保持一致
@@ -6458,7 +6462,7 @@ void TLayout::layoutTimeSig(const TimeSig* item, TimeSig::LayoutData* ldata, con
             double gap = bbRef.height() * 0.3;
 
             // 拍号分数部分
-            Font fSmall(Font::FontFamily(u"Edwin"), Font::Type::Text);
+            Font fSmall = jianpuFont(item);
             double tsScale = 0.9;
             fSmall.setPointSizeF(fontSize * item->magS() * tsScale);
 

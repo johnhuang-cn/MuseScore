@@ -89,12 +89,13 @@ void PlaybackContext::resolveImports()
 
 void PlaybackContext::onInit(const IApplication::RunMode& mode)
 {
-    m_playbackController->init();
-
     if (mode != IApplication::RunMode::GuiApp) {
         return;
     }
 
+    // Interactive playback must not subscribe to project changes in converter mode.
+    // Batch conversion may queue multiple changes before audio is ever started.
+    m_playbackController->init();
     m_playbackUiActions->init();
     m_soundProfileRepo->init();
 }
