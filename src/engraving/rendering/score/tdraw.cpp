@@ -2596,6 +2596,18 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
             default: break;
             }
         }
+        // Fixed Do shows the actual pitch: a note altered only by the key
+        // signature (e.g. B♭ in F major, no Accidental element) is still b7.
+        if (accType == AccidentalType::NONE && !acc
+            && staffType && staffType->type() == StaffTypes::JIANPU_FIXED) {
+            switch (item->jianpuAlter()) {
+            case -2: accType = AccidentalType::FLAT2; break;
+            case -1: accType = AccidentalType::FLAT; break;
+            case  1: accType = AccidentalType::SHARP; break;
+            case  2: accType = AccidentalType::SHARP2; break;
+            default: break;
+            }
+        }
         if (accType != AccidentalType::NONE) {
             SymId accSym = Accidental::subtype2symbol(accType);
             if (accSym != SymId::noSym) {
