@@ -2788,8 +2788,11 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                         }
                     }
                 } else {
-                    // Single note - draw individual underlines
-                    double lineEndX = startPosX + bb.width();
+                    // Single note - draw individual underlines using full advance width
+                    // (bb.width() is the tight ink width without bb.x() left bearing,
+                    // which is much narrower for digit "1" and shifts the underline left).
+                    double digitW = FontMetrics::width(f, item->fretString());
+                    double lineEndX = startPosX + digitW;
                     Pen pen(item->curColor(opt), lineThickness, PenStyle::SolidLine, PenCapStyle::FlatCap);
                     painter->setPen(pen);
                     for (int i = 0; i < hooks; ++i) {
@@ -2905,10 +2908,20 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
                 const Segment* curSeg = chord->segment();
                 const Measure* meas = chord->measure();
                 if (curSeg && meas) {
-                    const Segment* nextSeg = curSeg->next(SegmentType::ChordRest);
-                    double availableWidth = (nextSeg && nextSeg->measure() == meas)
-                        ? (nextSeg->x() - curSeg->x())
-                        : (meas->width() - curSeg->x());
+                    // Segments are system-wide: other staves or voices may create
+                    // ChordRest segments inside this chord's span, so look up the
+                    // segment at this chord's own end tick (or fall back to the
+                    // measure end barline) instead of curSeg->next(ChordRest).
+                    const Segment* endSeg = meas->findSegmentR(SegmentType::ChordRest,
+                                                               chord->rtick() + chord->actualTicks());
+                    double availableWidth;
+                    if (endSeg) {
+                        availableWidth = endSeg->x() - curSeg->x();
+                    } else {
+                        const Segment* blSeg = meas->findFirstR(SegmentType::EndBarLine, meas->ticks());
+                        const double rightEdge = (blSeg && blSeg->enabled()) ? blSeg->x() : meas->width();
+                        availableWidth = rightEdge - curSeg->x();
+                    }
                     if (availableWidth > 0.0) {
                         int totalBeats = extraBeats + 1;
                         double beatWidth = availableWidth / totalBeats;
@@ -3291,7 +3304,7 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
             hooks = restHooks;
         }
         if (hooks > 0) {
-            double lineWidth = bb.width();
+            double lineWidth = textW;
             if (multiZero && zeroSpacing > 0.0) {
                 // Keep a visible break between adjacent "0" underline segments
                 lineWidth = std::min(lineWidth, zeroSpacing * 0.8);
