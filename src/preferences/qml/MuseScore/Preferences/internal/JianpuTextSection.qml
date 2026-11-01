@@ -42,13 +42,9 @@ BaseSection {
         title: qsTrc("preferences", "Typeface")
         columnWidth: root.columnWidth
 
-        navigationName: "JianpuFontFaceBox"
-        navigationPanel: root.navigation
-        navigationRow: 1
-
-        dropdownComp: Component {
-            FontDropdown { }
-        }
+        navigation.name: "JianpuFontFaceBox"
+        navigation.panel: root.navigation
+        navigation.row: 1
 
         onValueEdited: function(newIndex, newValue) {
             root.fontChangeRequested(newIndex)

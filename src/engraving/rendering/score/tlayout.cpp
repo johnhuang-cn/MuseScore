@@ -4199,19 +4199,43 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
         if (keyIdx < 0 || keyIdx > 14) { keyIdx = 7; }
         int tonicChroma = keyToChroma[keyIdx];
 
-        // 计算升降号
-        //   Fixed Do：音符自身 TPC 的 alter（调号不参与）
-        //   Movable Do：实际相对主音的半音数 - 该音级在自然大调的标准半音数
+        // 计算升降号与音级归并
+        //   Fixed Do：主音 chroma = 0 (C)
+        //   Movable Do：主音 chroma = tonicChroma
+        int refChroma = isFixedDo ? 0 : tonicChroma;
+        int actualSemis = ((pitch - refChroma) % 12 + 12) % 12;
+        static const int degreeSemitones[] = {0, 2, 4, 5, 7, 9, 11};
+
         int alter = 0;
         if (isFixedDo) {
             alter = int(tpc2alter(tpc));
         } else {
-            int actualSemis = ((pitch - tonicChroma) % 12 + 12) % 12;
-            static const int degreeSemitones[] = {0, 2, 4, 5, 7, 9, 11};
             int naturalSemis = degreeSemitones[number - 1];
             alter = actualSemis - naturalSemis;
             if (alter > 6) { alter -= 12; }
             if (alter < -6) { alter += 12; }
+        }
+
+        // 1) 若实际半音落在自然大调七个音级 {0,2,4,5,7,9,11} 上（如 #7、#3、b1、b4 或首调下的重升/重降等音，
+        //    例如 1=bA 下的 B# 实际即 C = 3），直接归并为无升降号的自然音级 1..7。
+        static const int semisToNaturalDegree[12] = {
+            1, 0, 2, 0, 3, 4, 0, 5, 0, 6, 0, 7
+        };
+        if (semisToNaturalDegree[actualSemis] != 0) {
+            number = semisToNaturalDegree[actualSemis];
+            alter = 0;
+        } else if (alter != 1 && alter != -1) {
+            // 2) 若落在五个变化半音 {1,3,6,8,10} 上但出现重升/重降（alter = ±2 等），
+            //    归一为单升（#）或单降（b）
+            bool preferSharp = (int(tpc2alter(tpc)) >= 0);
+            switch (actualSemis) {
+            case 1:  number = preferSharp ? 1 : 2; alter = preferSharp ? 1 : -1; break;
+            case 3:  number = preferSharp ? 2 : 3; alter = preferSharp ? 1 : -1; break;
+            case 6:  number = preferSharp ? 4 : 5; alter = preferSharp ? 1 : -1; break;
+            case 8:  number = preferSharp ? 5 : 6; alter = preferSharp ? 1 : -1; break;
+            case 10: number = preferSharp ? 6 : 7; alter = preferSharp ? 1 : -1; break;
+            default: break;
+            }
         }
 
         // Jianpu: fretString only contains the digit (1-7).

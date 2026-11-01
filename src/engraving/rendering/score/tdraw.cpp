@@ -2543,7 +2543,54 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
             switch (item->jianpuAlter()) {
             case -2: accType = AccidentalType::FLAT2; break;
             case -1: accType = AccidentalType::FLAT; break;
-            case  0: accType = AccidentalType::NATURAL; break;
+            case  0: {
+                // Only draw a natural sign in Jianpu when cancelling a prior
+                // altered note (#/b) of the same Jianpu digit in the same measure
+                // on the same staff. When #7/#3/b1/b4 is normalized to 1/4/7/3,
+                // jianpuAlter() is 0 even though the 5-line staff note has an accidental.
+                bool needNatural = false;
+                if (item->chord() && item->chord()->segment() && item->chord()->measure()) {
+                    const Measure* meas = item->chord()->measure();
+                    const Segment* curSeg = item->chord()->segment();
+                    const staff_idx_t staffIdx = item->staffIdx();
+                    const track_idx_t minTrack = staffIdx * VOICES;
+                    const track_idx_t maxTrack = (staffIdx + 1) * VOICES;
+                    const String& curDigit = item->fretString();
+                    auto checkChordNotes = [&](const Chord* ch) {
+                        for (const Note* prevNote : ch->notes()) {
+                            if (prevNote->fretString() == curDigit) {
+                                needNatural = (prevNote->jianpuAlter() != 0);
+                            }
+                        }
+                    };
+                    for (const Segment* seg = meas->first(SegmentType::ChordRest);
+                         seg && seg != curSeg;
+                         seg = seg->next(SegmentType::ChordRest)) {
+                        for (track_idx_t t = minTrack; t < maxTrack; ++t) {
+                            const EngravingItem* el = seg->element(t);
+                            if (el && el->isChord()) {
+                                const Chord* ch = toChord(el);
+                                for (const Chord* gc : ch->graceNotesBefore()) {
+                                    checkChordNotes(gc);
+                                }
+                                checkChordNotes(ch);
+                                for (const Chord* gc : ch->graceNotesAfter()) {
+                                    checkChordNotes(gc);
+                                }
+                            }
+                        }
+                    }
+                    if (!isJianpuGrace) {
+                        for (const Chord* gc : item->chord()->graceNotesBefore()) {
+                            checkChordNotes(gc);
+                        }
+                    }
+                }
+                if (needNatural) {
+                    accType = AccidentalType::NATURAL;
+                }
+                break;
+            }
             case  1: accType = AccidentalType::SHARP; break;
             case  2: accType = AccidentalType::SHARP2; break;
             default: break;
