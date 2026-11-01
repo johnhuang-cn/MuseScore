@@ -251,6 +251,12 @@ public:
     void setDisplayFret(DisplayFretOption val) { m_displayFret = val; }
     String fretString() const { return m_fretString; }
     void setFretString(const String& s) { m_fretString = s; }
+    // Jianpu: effective alter (-2..+2) including accidentals from key signature.
+    // Populated by tlayout for Jianpu staves; read by tdraw to render the SMuFL
+    // accidental glyph even when there is no explicit Accidental element on the note
+    // (e.g. F in G major on a fixed-do Jianpu staff must show a sharp).
+    int jianpuAlter() const { return m_jianpuAlter; }
+    void setJianpuAlter(int v) { m_jianpuAlter = v; }
     bool negativeFretUsed() const;
     int string() const { return m_string; }
     void setString(int val) { m_string = val; }
@@ -555,6 +561,7 @@ private:
     std::vector<Spanner*> m_spannerBack;
 
     String m_fretString;
+    int m_jianpuAlter = 0;  // Jianpu effective alter (-2..+2), set by tlayout, used by tdraw
 
     std::vector<LineAttachPoint> m_lineAttachPoints;
     TieJumpPointList m_jumpPoints { this };

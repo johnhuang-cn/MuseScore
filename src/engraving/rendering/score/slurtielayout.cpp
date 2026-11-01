@@ -20,6 +20,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "slurtielayout.h"
+#include "jianpufont.h"
 
 #include "iengravingfont.h"
 
@@ -50,6 +51,7 @@
 #include "tremololayout.h"
 
 #include "draw/types/transform.h"
+#include "draw/fontmetrics.h"
 
 using namespace muse::draw;
 using namespace mu::engraving;
@@ -474,8 +476,21 @@ void SlurTieLayout::slurPos(Slur* item, SlurTiePos* sp, LayoutContext& ctx)
     }
 
     double __up = item->up() ? -1.0 : 1.0;
-    double hw1 = note1 ? note1->tabHeadWidth(stt) : scr->width() * scr->mag();        // if stt == 0, tabHeadWidth()
-    double hw2 = note2 ? note2->tabHeadWidth(stt) : ecr->width() * ecr->mag();        // defaults to headWidth()
+    // For Jianpu notes, use the actual digit width (not notehead width) for slur anchor X
+    auto jianpuDigitWidth = [](const Note* note) -> double {
+        if (note && note->staff() && note->staff()->staffType(note->tick())->isJianpuStaff()) {
+            const String& numStr = note->fretString();
+            if (!numStr.empty()) {
+                Font f = jianpuFont(note);
+                return FontMetrics::width(f, numStr) * note->magS();
+            }
+        }
+        return -1.0; // sentinel: use default
+    };
+    double jw1 = jianpuDigitWidth(note1);
+    double jw2 = jianpuDigitWidth(note2);
+    double hw1 = (jw1 >= 0.0) ? jw1 : (note1 ? note1->tabHeadWidth(stt) : scr->width() * scr->mag());        // if stt == 0, tabHeadWidth()
+    double hw2 = (jw2 >= 0.0) ? jw2 : (note2 ? note2->tabHeadWidth(stt) : ecr->width() * ecr->mag());        // defaults to headWidth()
     PointF pt;
     switch (sa1) {
     case SlurAnchor::STEM:                //sc can't be null
@@ -832,6 +847,18 @@ void SlurTieLayout::slurPos(Slur* item, SlurTiePos* sp, LayoutContext& ctx)
 
     if (item->isTappingHalfSlur()) {
         adjustForTappingHalfSlurs(toTappingHalfSlur(item), sp, note2);
+    }
+
+    // Jianpu: slur 始终保持水平（利用 up），将两端 Y 统一取更靠上方的值
+    // 额外向上抬高 1.2sp，避免 slur 压在简谱数字或高八度点之上
+    // 注：用 staffType()（即 staffTypeForElement）而非 staffType(tick)：
+    // spanner 的 m_tick 可能未初始化（-1 哨兵），非 const 重载会断言 abort
+    if (item->staffType() && item->staffType()->isJianpuStaff()) {
+        double outerY = item->up() ? std::min(sp->p1.y(), sp->p2.y())
+                                   : std::max(sp->p1.y(), sp->p2.y());
+        double jianpuLift = (item->up() ? -1.2 : 1.2) * _spatium;
+        sp->p1.setY(outerY + jianpuLift);
+        sp->p2.setY(outerY + jianpuLift);
     }
 }
 
@@ -1702,9 +1729,18 @@ PointF SlurTieLayout::computeDefaultStartOrEndPoint(const Tie* tie, Grip startOr
     const bool noteIsHiddenFret = note->shouldHideFret();
     const int upSign = up ? -1 : 1;
     const int leftRightSign = start ? +1 : -1;
-    const double noteWidth = note->width();
+    double noteWidth = note->width();
     const double noteHeight = note->height();
     const double spatium = tie->spatium();
+
+    // For Jianpu notes, use the actual digit width (not bbox width which may include duration underlines)
+    if (note->staff() && note->staff()->staffType(note->tick())->isJianpuStaff()) {
+        const String& numStr = note->fretString();
+        if (!numStr.empty()) {
+            Font f = jianpuFont(note);
+            noteWidth = FontMetrics::width(f, numStr) * note->magS();
+        }
+    }
 
     double baseX = (inside && !noteIsHiddenFret) ? (start ? noteWidth : 0.0) : noteOpticalCenterForTie(note, up);
     double baseY = inside ? 0.0 : upSign * noteHeight / 2;
@@ -1730,6 +1766,16 @@ PointF SlurTieLayout::computeDefaultStartOrEndPoint(const Tie* tie, Grip startOr
 
 double SlurTieLayout::noteOpticalCenterForTie(const Note* note, bool up)
 {
+    // Jianpu: return the center of the digit character (ignoring duration underline extension)
+    if (note->staff() && note->staff()->staffType(note->tick())->isJianpuStaff()) {
+        const String& numStr = note->fretString();
+        if (!numStr.empty()) {
+            Font f = jianpuFont(note);
+            double digitWidth = FontMetrics::width(f, numStr) * note->magS();
+            return digitWidth * 0.5;
+        }
+        return 0.5 * note->width();
+    }
     if (note->headGroup() == NoteHeadGroup::HEAD_SLASH) {
         double singleSlashWidth = note->symBbox(SymId::noteheadSlashHorizontalEnds).width();
         double noteWidth = note->headWidth();
@@ -2154,12 +2200,24 @@ void SlurTieLayout::forceHorizontal(Tie* tie, SlurTiePos& sPos)
     Note* startNote = tie->startNote();
     Note* endNote = tie->endNote();
 
-    if (startNote && endNote
-        && startNote->line() == endNote->line()
-        && startNote->chord()->vStaffIdx() == endNote->chord()->vStaffIdx()) {
+    // Jianpu: 所有音符数字都渲染在同一行，不管音高 line 是否一致，tie 都应水平
+    // 注：必须用 staffTypeForElement（内部走 uniqueStaffType 快路径 + findMeasure 兜底）：
+    // tie 的 m_tick 在部分创建路径（如 MusicXML 导入）下保持 -1 哨兵值，
+    // 直接 staffType(tie->tick()) 会命中非 const 重载的 assert(!tick.negative())
+    bool isJianpu = tie->staff() && tie->staff()->staffTypeForElement(tie)->isJianpuStaff();
+
+    if (isJianpu
+        || (startNote && endNote
+            && startNote->line() == endNote->line()
+            && startNote->chord()->vStaffIdx() == endNote->chord()->vStaffIdx())) {
         double y1 = sPos.p1.y();
         double y2 = sPos.p2.y();
         double outerY = tie->up() ? std::min(y1, y2) : std::max(y1, y2);
+        // Jianpu 额外向上抬高 1.2sp，保持与 slur 一致
+        if (isJianpu) {
+            double spatium = tie->spatium();
+            outerY += (tie->up() ? -1.2 : 1.2) * spatium;
+        }
         sPos.p1.setY(outerY);
         sPos.p2.setY(outerY);
     }
@@ -2565,6 +2623,15 @@ void SlurTieLayout::resolveVerticalTieCollisions(const std::vector<TieSegment*>&
 
 void SlurTieLayout::computeUp(Slur* slur, LayoutContext& ctx)
 {
+    // Jianpu: 无论 slurDirection 如何设置（UP/DOWN/AUTO），简谱谱表的 slur 必须永远向上
+    {
+        ChordRest* jpCR = slur->startCR() ? slur->startCR() : slur->endCR();
+        if (jpCR && jpCR->staff() && jpCR->staff()->isJianpuStaff(jpCR->tick())) {
+            slur->setUp(true);
+            return;
+        }
+    }
+
     switch (slur->slurDirection()) {
     case DirectionV::UP:
         slur->setUp(true);
@@ -2580,6 +2647,13 @@ void SlurTieLayout::computeUp(Slur* slur, LayoutContext& ctx)
         //
         ChordRest* chordRest1 = slur->startCR();
         ChordRest* chordRest2 = slur->endCR();
+
+        // Jianpu: slur always above
+        if (chordRest1 && chordRest1->staff() && chordRest1->staff()->isJianpuStaff(chordRest1->tick())) {
+            slur->setUp(true);
+            break;
+        }
+
         if (chordRest1 == 0 || chordRest2 == 0) {
             slur->setUp(true);
             break;
@@ -3017,10 +3091,23 @@ void SlurTieLayout::calculateDirection(Tie* item)
     const Chord* secondaryChord = secondaryNote ? secondaryNote->chord() : nullptr;
     const Measure* secondaryMeasure = secondaryChord ? secondaryChord->measure() : nullptr;
 
+    // Jianpu: 无论 slurDirection 如何设置，tie 在简谱谱表必须永远向上
+    if (item->staff() && item->staff()->staffType(primaryNote->tick())->isJianpuStaff()) {
+        item->setUp(true);
+        return;
+    }
+
     if (item->slurDirection() == DirectionV::AUTO) {
         std::vector<Note*> notes = primaryChord->notes();
         size_t n = notes.size();
         StaffType* st = item->staff()->staffType(primaryNote ? primaryNote->tick() : Fraction(0, 1));
+
+        // Jianpu: tie always above
+        if (st && st->isJianpuStaff()) {
+            item->setUp(true);
+            return;
+        }
+
         bool simpleException = st && st->isSimpleTabStaff();
         // if there are multiple voices, the tie direction goes on stem side
         if (primaryMeasure->hasVoices(primaryChord->staffIdx(), primaryChord->tick(), primaryChord->actualTicks())) {

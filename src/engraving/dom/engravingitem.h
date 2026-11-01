@@ -335,6 +335,7 @@ public:
     bool hasStaff() const;
     const StaffType* staffType() const;
     bool onTabStaff() const;
+    bool onJianpuStaff() const;
     Part* part() const;
 
     virtual void add(EngravingItem*);

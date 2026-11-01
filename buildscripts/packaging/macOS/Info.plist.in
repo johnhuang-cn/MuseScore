@@ -598,6 +598,12 @@
 	<string>${MACOSX_DEPLOYMENT_TARGET}</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>${MACOSX_BUNDLE_COPYRIGHT}</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Your scores, templates, styles, plugins and sound fonts are stored in a folder inside Documents.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Allows opening and saving scores on your Desktop.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Allows opening scores downloaded to your Downloads folder.</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.music</string>
 	<key>ATSApplicationFontsPath</key>

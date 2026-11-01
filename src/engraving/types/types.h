@@ -1163,9 +1163,9 @@ enum class MarkerType : unsigned char {
 };
 
 enum class StaffGroup : unsigned char {
-    STANDARD, PERCUSSION, TAB
+    STANDARD, PERCUSSION, TAB, JIANPU
 };
-constexpr int STAFF_GROUP_MAX = int(StaffGroup::TAB) + 1; // out of enum to avoid compiler complains about not handled switch cases
+constexpr int STAFF_GROUP_MAX = int(StaffGroup::JIANPU) + 1; // out of enum to avoid compiler complains about not handled switch cases
 
 enum class TrillType : unsigned char {
     TRILL_LINE, UPPRALL_LINE, DOWNPRALL_LINE, PRALLPRALL_LINE,

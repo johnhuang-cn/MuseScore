@@ -266,6 +266,9 @@ StaffTypes StaffType::type() const
         { u"tab8StrSimple", StaffTypes::TAB_8SIMPLE },
         { u"tab9StrSimple", StaffTypes::TAB_9SIMPLE },
         { u"tab10StrSimple", StaffTypes::TAB_10SIMPLE },
+
+        { u"jianpuFixed", StaffTypes::JIANPU_FIXED },
+        { u"jianpuMovable", StaffTypes::JIANPU_MOVABLE },
     };
 
     return muse::value(xmlNameToType, m_xmlName, StaffTypes::STANDARD);
@@ -1077,7 +1080,8 @@ double StaffType::spatium() const
 static const int _defaultPreset[STAFF_GROUP_MAX] =
 { 0,                    // default pitched preset is "stdNormal"
   4,                    // default percussion preset is "perc5lines"
-  5                     // default tab preset is "tab6StrCommon"
+  5,                    // default tab preset is "tab6StrCommon"
+  28                    // default jianpu preset is "jianpuMovable"
 };
 
 //---------------------------------------------------------
@@ -1152,6 +1156,10 @@ void StaffType::initStaffTypes(const Color& defaultColor)
         StaffType(StaffGroup::TAB, u"tab8StrSimple",  muse::mtrc("engraving", "Tab. 8-str. simple"),  8,  0, 1.5, true,  true, true, false, false,  defaultColor, u"MuseScore Tab Modern", 15, 0, false, true,  u"MuseScore Tab Sans",                     9, 0,  TablatureSymbolRepeat::NEVER, false, TablatureMinimStyle::NONE,    true,  false, true,  false, false, false, true,  false),
         StaffType(StaffGroup::TAB, u"tab9StrSimple",  muse::mtrc("engraving", "Tab. 9-str. simple"),  9,  0, 1.5, true,  true, true, false, false,  defaultColor, u"MuseScore Tab Modern", 15, 0, false, true,  u"MuseScore Tab Sans",                     9, 0,  TablatureSymbolRepeat::NEVER, false, TablatureMinimStyle::NONE,    true,  false, true,  false, false, false, true,  false),
         StaffType(StaffGroup::TAB, u"tab10StrSimple", muse::mtrc("engraving", "Tab. 10-str. simple"), 10, 0, 1.5, true,  true, true, false, false,  defaultColor, u"MuseScore Tab Modern", 15, 0, false, true,  u"MuseScore Tab Sans",                     9, 0,  TablatureSymbolRepeat::NEVER, false, TablatureMinimStyle::NONE,    true,  false, true,  false, false, false, true,  false),
+
+//                       group,              xml-name,  human-readable-name,                     lin stpOff  dist clef   bars stmless time  key    ledger invis     color
+        StaffType(StaffGroup::JIANPU, u"jianpuFixed",   muse::mtrc("engraving", "Jianpu (Fixed Do)"),    0, 0,     1,   false, true, true,  true, false, false, false,  defaultColor),
+        StaffType(StaffGroup::JIANPU, u"jianpuMovable", muse::mtrc("engraving", "Jianpu (Movable Do)"),  0, 0,     1,   false, true, true,  true, false, false, false,  defaultColor),
     };
 }
 /* *INDENT-ON* */

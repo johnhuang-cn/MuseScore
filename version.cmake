@@ -18,11 +18,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>. 
 
-set(MUSE_APP_NAME_HUMAN_READABLE "MuseScore Studio")
-set(MUSE_APP_NAME_MACHINE_READABLE "MuseScoreStudio")
+set(MUSE_APP_NAME_HUMAN_READABLE "MuseScore Studio Jianpu")
+set(MUSE_APP_NAME_MACHINE_READABLE "MuseScoreStudioJianpu")
 
-set(MUSE_APP_NAME_HUMAN_READABLE_COMPAT "MuseScore")
-set(MUSE_APP_NAME_MACHINE_READABLE_COMPAT "MuseScore")
+set(MUSE_APP_NAME_HUMAN_READABLE_COMPAT "MuseScoreJianpu")
+set(MUSE_APP_NAME_MACHINE_READABLE_COMPAT "MuseScoreJianpu")
 
 set(MUSE_APP_GUI_IDENTIFIER org.musescore.${MUSE_APP_NAME_MACHINE_READABLE_COMPAT})
 
@@ -32,7 +32,7 @@ set(MUSE_APP_VERSION_PATCH "6")
 set(MUSE_APP_VERSION_MAJ_MIN "${MUSE_APP_VERSION_MAJOR}.${MUSE_APP_VERSION_MINOR}")
 set(MUSE_APP_VERSION "${MUSE_APP_VERSION_MAJ_MIN}.${MUSE_APP_VERSION_PATCH}")
 
-set(MUSE_APP_VERSION_LABEL "")
+set(MUSE_APP_VERSION_LABEL "Jianpu Edition")
 
 if (NOT CMAKE_BUILD_NUMBER)
     set(CMAKE_BUILD_NUMBER "1")

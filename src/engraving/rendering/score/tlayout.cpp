@@ -22,6 +22,7 @@
 #include <cfloat>
 
 #include "tlayout.h"
+#include "jianpufont.h"
 
 #include "global/realfn.h"
 #include "global/types/number.h"
@@ -115,6 +116,7 @@
 #include "dom/rasgueado.h"
 #include "dom/rehearsalmark.h"
 #include "dom/rest.h"
+#include "dom/pitchspelling.h"
 
 #include "dom/shadownote.h"
 #include "dom/slur.h"
@@ -519,6 +521,11 @@ void TLayout::layoutAccidental(const Accidental* item, Accidental::LayoutData* l
     // TODO: remove Accidental in layout
     // don't show accidentals for tab or slash notation
     if (item->onTabStaff() || (item->note() && item->note()->fixed())) {
+        ldata->setIsSkipDraw(true);
+        return;
+    }
+    // Jianpu: accidentals are rendered as text inside the Note draw; skip standard symbol layout
+    if (item->onJianpuStaff()) {
         ldata->setIsSkipDraw(true);
         return;
     }
@@ -954,6 +961,23 @@ void TLayout::fillArticulationShape(const Articulation* item, Articulation::Layo
     LAYOUT_CALL_ITEM(item);
 
     SymId sym = item->symId();
+
+    // ── 简谱分支：staccato/staccatissimo 用倒立小三角形 ──
+    if (item->staff() && item->staff()->staffTypeForElement(item)->isJianpuStaff()) {
+        bool isStacc = (sym == SymId::articStaccatoAbove || sym == SymId::articStaccatoBelow);
+        bool isStacciss = (sym == SymId::articStaccatissimoAbove || sym == SymId::articStaccatissimoBelow
+                           || sym == SymId::articStaccatissimoWedgeAbove || sym == SymId::articStaccatissimoWedgeBelow
+                           || sym == SymId::articStaccatissimoStrokeAbove || sym == SymId::articStaccatissimoStrokeBelow);
+        if (isStacc || isStacciss) {
+            double sp = item->spatium();
+            double w = sp * 0.55;
+            double h = sp * 1.0;
+            // 倒立三角形：左对齐，与 SMuFL 符号锅点一致（x=0 左边，x=w 右边，尖端向下）
+            ldata->setShape(Shape(RectF(0, -h, w, h), item));
+            return;
+        }
+    }
+
     if (sym == SymId::articAccentAbove || sym == SymId::articAccentBelow) {
         RectF symBbox = item->symBbox(sym);
         double width = symBbox.width();
@@ -3413,6 +3437,60 @@ void TLayout::layoutKeySig(const KeySig* item, KeySig::LayoutData* ldata, const 
 
     const Staff* staff = item->staff();
     const StaffType* stVisibility = staff ? staff->staffType(item->tick()) : nullptr;
+
+    // ── 简谱分支：绘制 "1=X" 格式调号 ──
+    if (stVisibility && stVisibility->isJianpuStaff()) {
+        // 如果同一 tick 有 TimeSig，TimeSig 已经绘制了 "1=X N/M"，KeySig 不渲染
+        const Segment* seg = item->segment();
+        if (seg) {
+            Segment* tsSeg = seg->measure()->findSegmentR(SegmentType::TimeSig, seg->rtick());
+            if (tsSeg && tsSeg->element(item->track())) {
+                ldata->setShape(Shape());
+                return;
+            }
+        }
+
+        // 仅在首小节与转调小节占位；每行行首重复的调号不预留宽度
+        if (!jianpuKeySigVisible(item)) {
+            ldata->setShape(Shape());
+            return;
+        }
+
+        // 计算 "1=X" 文字 bbox
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        f.setPointSizeF(fontSize * item->magS());
+
+        // 简谱调号显示区分两种模式：
+        //   - JIANPU_FIXED（固定调 Fixed Do）：无论五线谱调号为何，永远显示 1=C
+        //   - JIANPU_MOVABLE（首调 Movable Do）：根据五线谱调号映射（如 F 调显示 1=F）
+        String keySigStr;
+        if (stVisibility->type() == StaffTypes::JIANPU_FIXED) {
+            keySigStr = String(u"1=C");
+        } else {
+            static const char16_t* jianpuKeyNames[] = {
+                u"\u266dC", u"\u266dG", u"\u266dD", u"\u266dA", u"\u266dE", u"\u266dB",
+                u"F", u"C",
+                u"G", u"D", u"A", u"E", u"B", u"#F", u"#C"
+            };
+            // 首调简谱的调号来源于关联五线谱（primaryStaff）而非简谱自身
+            const Staff* srcStaff = staff->primaryStaff() ? staff->primaryStaff() : staff;
+            Key key = srcStaff->key(item->tick());
+            int keyIdx = static_cast<int>(key) + 7;
+            if (keyIdx < 0 || keyIdx > 14) { keyIdx = 7; }
+            keySigStr = String(u"1=") + String(jianpuKeyNames[keyIdx]);
+        }
+
+        RectF bbRef = FontMetrics::boundingRect(f, String(u"0"));
+        double yCenter = -bbRef.y() - bbRef.height() * 0.5;
+        double keySigWidth = FontMetrics::width(f, keySigStr);
+
+        Shape shape;
+        shape.add(RectF(0, yCenter - bbRef.height() * 0.5, keySigWidth, bbRef.height()), item);
+        ldata->setShape(shape);
+        return;
+    }
+
     if (stVisibility && !stVisibility->genKeysig()) {
         return;
     }
@@ -4047,7 +4125,8 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
     }
 
     bool useTablature = item->staff() && item->staff()->isTabStaff(item->chord()->tick());
-    ldata->useTablature.set_value(useTablature);
+    bool useJianpu = item->staff() && item->staff()->isJianpuStaff(item->chord()->tick());
+    ldata->useTablature.set_value(useTablature || useJianpu);
 
     RectF noteBBox;
     if (useTablature) {
@@ -4080,6 +4159,157 @@ void TLayout::layoutNote(const Note* item, Note::LayoutData* ldata)
         double height = item->deadNote() ? tab->deadFretBoxH() : tab->fretBoxH();
 
         noteBBox = RectF(0, y * mags, w, height * mags);
+    } else if (useJianpu) {
+        // ===== Jianpu (numbered musical notation) layout =====
+        const Staff* st = item->staff();
+        const StaffType* jianpuType = st->staffTypeForElement(item);
+        const bool isFixedDo = (jianpuType->type() == StaffTypes::JIANPU_FIXED);
+
+        // Use TPC (Tonal Pitch Class) for correct note name identification.
+        // TPC encodes letter name + accidental, arranged in fifths: F,C,G,D,A,E,B
+        // tpc1() = concert pitch TPC (non-transposed)
+        int tpc = item->tpc1();
+        int pitch = item->pitch();
+
+        // TPC -> fifths index: ((tpc+1)%7+7)%7  => 0=F,1=C,2=G,3=D,4=A,5=E,6=B
+        int fifthsIndex = ((tpc + 1) % 7 + 7) % 7;
+        // Fifths index -> diatonic scale index: F=3, C=0, G=4, D=1, A=5, E=2, B=6
+        static const int fifthsToDiatonic[] = {3, 0, 4, 1, 5, 2, 6};
+        int noteDiatonic = fifthsToDiatonic[fifthsIndex];
+
+        // 确定用于计算的调号：固定调用 C，首调从关联五线谱主谱表（primaryStaff）取
+        Key effKey = Key::C;
+        if (!isFixedDo) {
+            Fraction tick = item->chord()->tick();
+            const Staff* src = st->primaryStaff() ? st->primaryStaff() : st;
+            effKey = src->key(tick);
+        }
+        int keyFifthsIndex = ((int(effKey) + 1) % 7 + 7) % 7;
+        int tonicDiatonic = fifthsToDiatonic[keyFifthsIndex];
+
+        // 数字 1-7：音名相对于主音的音级距离（固定调主音=C）
+        int number = (noteDiatonic - tonicDiatonic + 7) % 7 + 1;
+
+        // Key -> tonic chroma（半音循环 0..11）：Key 索引 -7..+7 → chroma
+        static const int keyToChroma[15] = {
+            // Cb, Gb, Db, Ab, Eb, Bb, F,  C,  G,  D,  A,  E,  B,  F#, C#
+             11,  6,  1,  8,  3, 10, 5,  0,  7,  2,  9,  4, 11,  6,  1
+        };
+        int keyIdx = int(effKey) + 7;
+        if (keyIdx < 0 || keyIdx > 14) { keyIdx = 7; }
+        int tonicChroma = keyToChroma[keyIdx];
+
+        // 计算升降号
+        //   Fixed Do：音符自身 TPC 的 alter（调号不参与）
+        //   Movable Do：实际相对主音的半音数 - 该音级在自然大调的标准半音数
+        int alter = 0;
+        if (isFixedDo) {
+            alter = int(tpc2alter(tpc));
+        } else {
+            int actualSemis = ((pitch - tonicChroma) % 12 + 12) % 12;
+            static const int degreeSemitones[] = {0, 2, 4, 5, 7, 9, 11};
+            int naturalSemis = degreeSemitones[number - 1];
+            alter = actualSemis - naturalSemis;
+            if (alter > 6) { alter -= 12; }
+            if (alter < -6) { alter += 12; }
+        }
+
+        // Jianpu: fretString only contains the digit (1-7).
+        // Accidental (sharp/flat) is rendered separately as a SMuFL glyph at the
+        // top-left of the digit in tdraw.cpp (see draw(const Note*) Jianpu branch).
+        // Do NOT include the accidental in fretString to avoid double rendering.
+        // Store the computed alter on the note so tdraw can render the SMuFL glyph
+        // even for notes whose accidental is implied by the key signature
+        // (e.g. F in G major -> alter=+1, no explicit Accidental element).
+        const_cast<Note*>(item)->setJianpuAlter(alter);
+
+        String numberStr = String::number(number);
+        const_cast<Note*>(item)->setFretString(numberStr);
+
+        // Use a standard font for Jianpu numbers
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        f.setPointSizeF(fontSize);
+        double mags = item->magS();
+
+        double w = FontMetrics::width(f, numberStr) * mags;
+        RectF bb = FontMetrics::boundingRect(f, numberStr);
+
+        // Bbox must match the draw coordinates where text is vertically centered.
+        // Draw code does: yOffset = -bb.y() - bb.height()/2, centering text around y=0
+        // Text visual area: [-bb.height()/2, +bb.height()/2] (all scaled by mags)
+        double halfH = bb.height() * mags / 2.0;
+        double bboxTop = -halfH;
+
+        // Reserve space for duration underlines (减时线).
+        // In draw: baseY = -bb.y()*mags + 2*mags (ascent + small gap)
+        // For up to 3 lines (32nd note): baseY + 2*lineSpacing + lineThickness
+        // Use a fixed formula: ascent + 8*mags covers even 3 underlines safely.
+        double ascent = -bb.y() * mags;
+        double bboxBottom = ascent + 8.0 * mags; // enough for 3 underlines
+
+        // Reserve space for octave dots above/below the digit.
+        // octaveOffset: 0=middle octave, +N=N dots above, -N=N dots below
+        //   Fixed Do: 中音区 = C4..B4 (pitch/12-5 == 0)
+        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)，主音取中央C所在八度
+        //   （tonicMidi = 60+tonicChroma ∈ [60,71]），即各调中音主音 1 均不带八度点。
+        //   注意：不可对 A/bB/B 调做 -12 特判，否则中音主音会被画到较低八度。
+        int octaveOffset;
+        if (isFixedDo) {
+            octaveOffset = pitch / 12 - 5; // C4 pitch=60 → 0
+        } else {
+            int tonicMidi = 60 + tonicChroma;
+            int diff = pitch - tonicMidi;
+            octaveOffset = (diff >= 0) ? (diff / 12) : -((-diff + 11) / 12);
+        }
+        // Use bb.height() (unscaled) * mags as reference for dot proportions,
+        // consistent with the draw code which uses scaled bb.height().
+        double bbHeightScaled = bb.height() * mags;
+        double dotRadius = bbHeightScaled * 0.07;
+        double dotSpacing = bbHeightScaled * 0.22;
+        if (octaveOffset > 0) {
+            // Dots above: bboxTop moves up by (octaveOffset dots + gap)
+            double dotsHeight = octaveOffset * dotSpacing + dotRadius;
+            bboxTop -= dotsHeight + dotRadius;
+        } else if (octaveOffset < 0) {
+            // Dots below: extend bboxBottom further down
+            int absDots = -octaveOffset;
+            double dotsHeight = absDots * dotSpacing + dotRadius;
+            bboxBottom += dotsHeight + dotRadius;
+        }
+
+        double bboxWidth = w;
+        if (item->chord() && item->chord()->durationType().hooks() > 0) {
+            // Extend bbox width to cover the gap to the next note,
+            // ensuring underlines are redrawn when this area is repainted.
+            bboxWidth = w + item->spatium() * 4.0;
+        }
+
+        // Jianpu grace note: 整体上移，让数字座落在主音左上角（视觉层）
+        // 使用 bbHeightScaled 作为基准的上移量，以所缩放后的字高的 55% 为度量
+        if (item->chord() && item->chord()->isGrace()) {
+            double graceYShift = -bbHeightScaled * 1.2;
+            bboxTop += graceYShift;
+            bboxBottom += graceYShift;
+        }
+
+        // Jianpu chord stack: digits stack upward at draw time (see tdraw.cpp,
+        // stackStep = 1.4 * digit height); reserve the extra column height so
+        // system spacing clears the top of the stack. Polyphonic voices are
+        // rendered on separate rows, so only real chords stack here.
+        if (item->chord() && !item->chord()->isGrace() && item->chord()->notes().size() > 1) {
+            const std::vector<Note*>& stackNotes = item->chord()->notes();
+            int rank = 0;  // 0 = highest pitch
+            for (const Note* other : stackNotes) {
+                if (other != item && other->pitch() > item->pitch()) {
+                    ++rank;
+                }
+            }
+            const int stackLevel = (int(stackNotes.size()) - 1) - rank;  // 0 = bottom
+            bboxTop -= stackLevel * bbHeightScaled * 1.4;
+        }
+
+        noteBBox = RectF(0, bboxTop, bboxWidth, bboxBottom - bboxTop);
     } else {
         if (item->deadNote()) {
             const_cast<Note*>(item)->setHeadGroup(NoteHeadGroup::HEAD_CROSS);
@@ -6091,6 +6321,70 @@ void TLayout::layoutTimeSig(const TimeSig* item, TimeSig::LayoutData* ldata, con
         }
         numOfLines  = staff->lines(tick);
         lineDist    = staff->lineDistance(tick);
+
+        // ── 简谱分支：计算 "1=X  N/M" 整体 bbox ──
+        if (stVisibility->isJianpuStaff()) {
+            // 清空 SMuFL 符号列表，避免残留符号被标准绘制路径意外绘制
+            ldata->ns.clear();
+            ldata->ds.clear();
+            if (item->isCourtesy()) {
+                ldata->setShape(Shape());
+                return;
+            }
+
+            // 与 draw() 中的简谱 TimeSig 绘制逻辑保持一致的参数
+            Font f = jianpuFont(item);
+            double fontSize = f.pointSizeF();
+            f.setPointSizeF(fontSize * item->magS());
+
+            // 调号 "1=X"：与 KeySig 逻辑保持一致
+            //   - JIANPU_FIXED：始终 1=C
+            //   - JIANPU_MOVABLE：根据 primaryStaff 的调号映射
+            static const char16_t* jianpuKeyNames[] = {
+                u"\u266dC", u"\u266dG", u"\u266dD", u"\u266dA", u"\u266dE", u"\u266dB",
+                u"F", u"C",
+                u"G", u"D", u"A", u"E", u"B", u"#F", u"#C"
+            };
+            String keySigStr;
+            if (stVisibility->type() == StaffTypes::JIANPU_FIXED) {
+                keySigStr = String(u"1=C");
+            } else {
+                const Staff* srcStaff = staff->primaryStaff() ? staff->primaryStaff() : staff;
+                Key key = srcStaff->key(tick);
+                int keyIdx = static_cast<int>(key) + 7;
+                if (keyIdx < 0 || keyIdx > 14) keyIdx = 7;
+                keySigStr = String(u"1=") + String(jianpuKeyNames[keyIdx]);
+            }
+
+            RectF bbRef = FontMetrics::boundingRect(f, String(u"0"));
+            double yCenter = -bbRef.y() - bbRef.height() * 0.5;
+
+            double keySigWidth = FontMetrics::width(f, keySigStr);
+            double gap = bbRef.height() * 0.3;
+
+            // 拍号分数部分
+            Font fSmall = jianpuFont(item);
+            double tsScale = 0.9;
+            fSmall.setPointSizeF(fontSize * item->magS() * tsScale);
+
+            String numStr = String::number(item->sig().numerator());
+            String denStr = String::number(item->sig().denominator());
+            RectF bbNum = FontMetrics::boundingRect(fSmall, numStr);
+            RectF bbDen = FontMetrics::boundingRect(fSmall, denStr);
+            double numW = FontMetrics::width(fSmall, numStr);
+            double denW = FontMetrics::width(fSmall, denStr);
+            double maxTsW = std::max(numW, denW);
+
+            double totalWidth = keySigWidth + gap + maxTsW;
+            // 高度：分子 + 间距 + 分母
+            double fracGap = bbNum.height() * 0.08;
+            double totalHeight = bbNum.height() + bbDen.height() + fracGap * 2;
+
+            Shape shape;
+            shape.add(RectF(0, yCenter - totalHeight * 0.5, totalWidth, totalHeight), item);
+            ldata->setShape(shape);
+            return;
+        }
     } else {
         // assume dimensions of a standard staff
         lineDist = 1.0;

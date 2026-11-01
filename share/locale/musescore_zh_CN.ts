@@ -11201,6 +11201,16 @@ Fret %1 on strings %2</source>
         <translation>标准</translation>
     </message>
     <message>
+        <location filename="../../src/engraving/dom/stafftype.cpp" line="1162"/>
+        <source>Jianpu (Fixed Do)</source>
+        <translation>简谱（固定调）</translation>
+    </message>
+    <message>
+        <location filename="../../src/engraving/dom/stafftype.cpp" line="1163"/>
+        <source>Jianpu (Movable Do)</source>
+        <translation>简谱（首调）</translation>
+    </message>
+    <message>
         <location filename="../../src/engraving/dom/stafftype.cpp" line="1127"/>
         <source>Perc. 1 line</source>
         <translation>单线鼓谱</translation>

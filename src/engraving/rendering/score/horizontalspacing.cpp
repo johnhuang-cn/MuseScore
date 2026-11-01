@@ -36,6 +36,7 @@
 #include "dom/score.h"
 #include "dom/stemslash.h"
 #include "dom/staff.h"
+#include "dom/stafftype.h"
 #include "dom/stem.h"
 #include "dom/system.h"
 #include "dom/tie.h"
@@ -1341,6 +1342,24 @@ double HorizontalSpacing::minHorizontalDistance(const Segment* f, const Segment*
         ww = std::max(ww, d);
     }
     double w = std::max(ww, 0.0);        // non-negative
+
+    // For Jianpu rests with duration hooks, the rest's shape/bbox includes extra width
+    // for underline strokes (spatium * 4.0). Subtract that excess here so it doesn't
+    // inflate horizontal spacing between segments.
+    if (f->isChordRestType()) {
+        for (EngravingItem* e : f->elist()) {
+            if (!e || !e->isRest()) {
+                continue;
+            }
+            const Rest* rest = toRest(e);
+            const StaffType* stt = rest->staff() ? rest->staff()->staffTypeForElement(rest) : nullptr;
+            if (stt && stt->isJianpuStaff() && rest->durationType().hooks() > 0) {
+                double excess = rest->spatium() * 4.0;
+                w = std::max(0.0, w - excess);
+                break;
+            }
+        }
+    }
 
     // Header exceptions that need additional space (more than the padding)
     double absoluteMinHeaderDist = 1.5 * f->spatium() * squeezeFactor;

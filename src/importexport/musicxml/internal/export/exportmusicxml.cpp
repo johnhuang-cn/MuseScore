@@ -7662,6 +7662,10 @@ void ExportMusicXml::exportDefaultClef(const Part* const part, const Measure* co
                         ct = ClefType::PERC;
                         stafftype = u"perc";
                         break;
+                    case StaffGroup::JIANPU:
+                        ct = ClefType::G;
+                        stafftype = u"jianpu";
+                        break;
                     }
                     LOGD("no clef found in first measure track %zu (stafftype %s)", track, muPrintable(stafftype));
                     clef(sstaff, ct, u" print-object=\"no\"");

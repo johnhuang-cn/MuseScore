@@ -83,3 +83,8 @@ __pycache__/
 /mscore/revision.h
 /share/sound/MuseScore_General*
 /VERSION
+
+# Qoder RepoWiki
+.qoder/repowiki/
+
+/docs/

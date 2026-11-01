@@ -128,6 +128,14 @@ void AbstractNotationPaintView::load()
         m_isSmoothPanningEnabled = configuration()->isSmoothPanning();
     }, async::Asyncable::Mode::SetReplace);
 
+    notationConfiguration()->jianpuFontChanged().onNotify(this, [this]() {
+        if (m_notation && m_notation->style()) {
+            // force a full re-layout so jianpu text metrics are recomputed
+            m_notation->style()->resetStyleValue(engraving::Sid::jianpuFontSize);
+        }
+        scheduleRedraw();
+    }, async::Asyncable::Mode::SetReplace);
+
     scheduleRedraw();
 }
 

@@ -93,6 +93,8 @@ void ChordLayout::layout(Chord* item, LayoutContext& ctx)
 
     if (item->onTabStaff()) {
         layoutTablature(item, ctx);
+    } else if (item->onJianpuStaff()) {
+        layoutJianpu(item, ctx);
     } else {
         layoutPitched(item, ctx);
     }
@@ -708,6 +710,75 @@ void ChordLayout::layoutTablature(Chord* item, LayoutContext& ctx)
     fillShape(item, item->mutldata(), ctx.conf());
 }
 
+void ChordLayout::layoutJianpu(Chord* item, LayoutContext& ctx)
+{
+    double mag_ = item->staff() ? item->staff()->staffMag(item) : 1.0;
+    double dotNoteDistance = ctx.conf().styleMM(Sid::dotNoteDistance) * mag_;
+
+    for (Chord* c : item->graceNotes()) {
+        layoutJianpu(c, ctx);
+    }
+
+    double headWidth = 0.0;
+    size_t numOfNotes = item->notes().size();
+
+    // Jianpu: 继承 Chord 的 mag（grace chord 中已包含 graceNoteMag）
+    // 这样 note->magS() 才会在前倚音中自动缩小字号
+    const double chordMag = item->mag();
+
+    // 简谱多声部：每个声部渲染在独立的行上（voice 0 为基线 y=0，
+    // voice 1 及以下每级下移一行），替代五线谱的多声部纵向偏移逻辑。
+    const double jianpuSpatium = item->staff() ? item->staff()->spatium(item->tick()) : item->spatium();
+    const double jianpuVoiceRowHeight = 3.0 * jianpuSpatium;
+    const int voiceRow = item->track() % VOICES;
+
+    for (size_t i = 0; i < numOfNotes; ++i) {
+        Note* note = item->notes().at(i);
+        note->mutldata()->setMag(chordMag);
+        note->setDotRelativeLine(0);
+        TLayout::layoutNote(note, note->mutldata());
+
+        double fretWidth = note->ldata()->bbox().width();
+        if (headWidth < fretWidth) {
+            headWidth = fretWidth;
+        }
+        // Each voice sits on its own Jianpu row (y=0 for voice 0)
+        note->setPos(0, voiceRow * jianpuVoiceRowHeight);
+    }
+
+    // horiz. spacing
+    item->setDotPosX(headWidth);
+
+    // Jianpu is stemless - remove stem/hook if present
+    if (item->stem()) {
+        ctx.mutDom().doUndoRemoveElement(item->stem());
+        item->remove(item->stem());
+    }
+    if (item->hook()) {
+        ctx.mutDom().doUndoRemoveElement(item->hook());
+        item->remove(item->hook());
+    }
+
+    double lll = 0;
+    double rrr = headWidth;
+
+    // dots
+    if (item->dots()) {
+        double x = headWidth + dotNoteDistance;
+        x += item->symWidth(SymId::augmentationDot);
+        rrr = std::max(rrr, x);
+    }
+
+    item->setSpaceLw(lll);
+    item->setSpaceRw(rrr);
+
+    for (size_t i = 0; i < numOfNotes; ++i) {
+        layoutNote2(item->notes().at(i), ctx);
+    }
+
+    fillShape(item, item->mutldata(), ctx.conf());
+}
+
 void ChordLayout::layoutLvArticulation(Chord* item, LayoutContext& ctx)
 {
     // Laissez vib ties must be layed out with the rest of the note, as they need to be taken into account for horizontal spacing
@@ -830,8 +901,12 @@ void ChordLayout::layoutArticulations(Chord* item, LayoutContext& ctx)
     //
 
     Articulation* prevVisibleArticulation = nullptr;
+    const bool isJianpuChordLayout = staffType && staffType->isJianpuStaff();
     for (Articulation* a : item->articulations()) {
-        if (item->measure()->hasVoices(a->staffIdx(), item->tick(), item->actualTicks()) && a->anchor() == ArticulationAnchor::AUTO) {
+        if (isJianpuChordLayout) {
+            // 简谱：所有 articulation 一律在音符上方
+            a->setUp(true);
+        } else if (item->measure()->hasVoices(a->staffIdx(), item->tick(), item->actualTicks()) && a->anchor() == ArticulationAnchor::AUTO) {
             a->setUp(item->up());         // if there are voices place articulation at stem
         } else if (a->anchor() == ArticulationAnchor::AUTO) {
             if (a->isOrnament()) {
@@ -1001,6 +1076,11 @@ void ChordLayout::layoutArticulations(Chord* item, LayoutContext& ctx)
             }
         }
         x -= a->ldata()->opticalCenter();
+        // Jianpu: tenuto (保持音) 绘制在数字正上方时太贴近数字，整体上移一点
+        // 让横线与数字顶部留出视觉呼吸空间（约 0.6sp）。
+        if (isJianpuChordLayout && a->isTenuto()) {
+            y -= 0.6 * _spatium;
+        }
         a->setPos(x, y);
         if (a->visible()) {
             prevVisibleArticulation = a;
@@ -1819,10 +1899,11 @@ OffsetInfo ChordLayout::centreChords(const Segment* segment, ChordPosInfo& posIn
 {
     const Staff* staff = ctx.dom().staff(staffIdx);
     const bool isTab = staff->isTabStaff(segment->tick());
+    const bool isJianpu = staff->isJianpuStaff(segment->tick());
 
     OffsetInfo offsetInfo = OffsetInfo();
     // only center chords on standard staves.  This is a simpler process for TAB and done elsewhere
-    if (isTab) {
+    if (isTab || isJianpu) {
         return offsetInfo;
     }
 
@@ -2279,7 +2360,12 @@ void ChordLayout::layoutChords1(LayoutContext& ctx, Segment* segment, staff_idx_
 
         OffsetInfo offsetInfo = centreChords(segment, posInfo, staffIdx, tick, ctx);
 
-        calculateChordOffsets(segment, staffIdx, tick, offsetInfo, posInfo, ctx);
+        // Jianpu: unison chords across voices must NOT be shifted horizontally
+        // (each voice is rendered on its own row, so digits never overprint);
+        // applyChordOffsets still runs below with the empty offset info.
+        if (!staff->isJianpuStaff(tick)) {
+            calculateChordOffsets(segment, staffIdx, tick, offsetInfo, posInfo, ctx);
+        }
 
         applyChordOffsets(segment, staffIdx, partStartTrack, partEndTrack, offsetInfo, posInfo, ctx);
     }
@@ -2728,9 +2814,13 @@ void ChordLayout::layoutChords3(const std::vector<Chord*>& chords,
         std::vector<Note*> chordNotes = chord->notes();
         std::sort(chordNotes.begin(), chordNotes.end(),
                   [](Note* n1, const Note* n2) ->bool { return n1->line() < n2->line(); });
+        const bool isJianpuChord = staff->isJianpuStaff(tick);
         for (Note* note : chordNotes) {
             double noteX = 0.0;
-            if (note->ldata()->mirror()) {
+            if (isJianpuChord) {
+                // Jianpu: keep noteX = 0, no stem/mirror adjustments
+                noteX = 0.0;
+            } else if (note->ldata()->mirror()) {
                 if (_up) {
                     noteX = StemLayout::stemPosX(chord) - overlapMirror;
                 } else {
@@ -2740,13 +2830,15 @@ void ChordLayout::layoutChords3(const std::vector<Chord*>& chords,
                 noteX = chord->noteHeadWidth() - note->headBodyWidth();
             }
 
-            double ny = (note->line() + stepOffset) * stepDistance;
-            if (note->ldata()->pos().y() != ny) {
-                note->mutldata()->setPosY(ny);
-                if (stem) {
-                    TLayout::layoutStem(chord->stem(), chord->stem()->mutldata(), ctx.conf());
-                    if (chord->hook()) {
-                        chord->hook()->mutldata()->setPosY(chord->stem()->flagPosition().y());
+            if (!isJianpuChord) {
+                double ny = (note->line() + stepOffset) * stepDistance;
+                if (note->ldata()->pos().y() != ny) {
+                    note->mutldata()->setPosY(ny);
+                    if (stem) {
+                        TLayout::layoutStem(chord->stem(), chord->stem()->mutldata(), ctx.conf());
+                        if (chord->hook()) {
+                            chord->hook()->mutldata()->setPosY(chord->stem()->flagPosition().y());
+                        }
                     }
                 }
             }
@@ -3410,8 +3502,24 @@ void ChordLayout::fillShape(const Chord* item, ChordRest::LayoutData* ldata)
         shape.add(spanArpeggio->shape().translate(spanArpPos));
     }
 
+    // Determine if this is a Jianpu chord — if so, use narrow note shapes
+    // (excluding the spatium*4 dirty-rect extension for duration underlines)
+    // to avoid inflating horizontal spacing for ALL staves in the score.
+    const StaffType* stt = item->staff() ? item->staff()->staffTypeForElement(item) : nullptr;
+    bool isJianpuChord = stt && stt->isJianpuStaff();
+
     for (Note* note : item->notes()) {
-        shape.add(note->shape().translate(note->pos()));
+        if (isJianpuChord && item->durationType().hooks() > 0) {
+            // Build a narrow shape from the note's bbox minus the underline extension
+            const RectF& nb = note->ldata()->bbox();
+            double sp = note->spatium();
+            double narrowW = std::max(0.0, nb.width() - sp * 4.0);
+            Shape narrowShape(Shape::Type::Composite);
+            narrowShape.add(RectF(nb.x(), nb.y(), narrowW, nb.height()), note);
+            shape.add(narrowShape.translate(note->pos()));
+        } else {
+            shape.add(note->shape().translate(note->pos()));
+        }
     }
 
     for (const NoteParenthesisInfo* parenInfo : item->noteParentheses()) {

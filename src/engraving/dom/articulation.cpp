@@ -267,6 +267,11 @@ bool Articulation::layoutCloseToNote() const
     if (s && s->staffType()->isTabStaff() && isStaccato()) {
         return false;
     }
+    // 简谱谱表：staccato 同样不贴近音符布局，与 staccatissimo 走相同的 staff 路径
+    // 从而使用自定义倒三角形的尺寸，而不是原来五线谱小点的计算方式
+    if (s && s->staffType()->isJianpuStaff() && isStaccato()) {
+        return false;
+    }
 
     return (isStaccato() || isTenuto()) && !isDouble();
 }

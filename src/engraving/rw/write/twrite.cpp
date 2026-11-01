@@ -519,6 +519,11 @@ void TWrite::writeItemLink(const EngravingObject* item, XmlWriter& xml, WriteCon
     EngravingItem* mainElement = static_cast<EngravingItem*>(item->links()->mainElement());
     if (mainElement != item) {
         EID eidOfMainElement = mainElement->eid();
+        if (!eidOfMainElement.isValid()) {
+            // Main element may not have been written yet; assign EID on demand
+            // (mirrors the pattern in writeEid)
+            eidOfMainElement = mainElement->assignNewEID();
+        }
         DO_ASSERT(eidOfMainElement.isValid());
         xml.tag("linkedTo", eidOfMainElement.toStdString());
     }
@@ -2930,10 +2935,10 @@ void TWrite::write(const StaffType* item, XmlWriter& xml, WriteContext& ctx)
     if (item->color() != ctx.configuration()->defaultColor()) {
         xml.tagProperty(Pid::COLOR, item->color());
     }
-    if (item->group() == StaffGroup::STANDARD) {
+    if (item->group() == StaffGroup::STANDARD || item->group() == StaffGroup::JIANPU) {
         xml.tag("noteheadScheme", TConv::toXml(item->noteHeadScheme()), TConv::toXml(NoteHeadScheme::HEAD_NORMAL));
     }
-    if (item->group() == StaffGroup::STANDARD || item->group() == StaffGroup::PERCUSSION) {
+    if (item->group() == StaffGroup::STANDARD || item->group() == StaffGroup::PERCUSSION || item->group() == StaffGroup::JIANPU) {
         if (!item->genKeysig()) {
             xml.tag("keysig", item->genKeysig());
         }

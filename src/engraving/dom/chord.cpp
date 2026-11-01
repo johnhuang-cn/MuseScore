@@ -1150,6 +1150,9 @@ void Chord::cmdUpdateNotes(AccidentalState* as, staff_idx_t staffIdx)
         }
         stringData->fretChords(this);
         return;
+    } else if (staffGroup == StaffGroup::JIANPU) {
+        // Jianpu: treat as STANDARD (pitched)
+        staffGroup = StaffGroup::STANDARD;
     } else {
         // if not tablature, use instrument->useDrumset to set staffGroup (to allow pitched to unpitched in same staff)
         staffGroup = st->part()->instrument(this->tick())->useDrumset() ? StaffGroup::PERCUSSION : StaffGroup::STANDARD;

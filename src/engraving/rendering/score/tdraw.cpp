@@ -20,6 +20,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "tdraw.h"
+#include "jianpufont.h"
 
 #include "defer.h"
 
@@ -62,6 +63,7 @@
 
 #include "dom/glissando.h"
 #include "dom/gradualtempochange.h"
+#include "dom/groups.h"
 #include "dom/guitarbend.h"
 
 #include "dom/hairpin.h"
@@ -434,6 +436,11 @@ void TDraw::draw(const Accidental* item, Painter* painter, const PaintOptions& o
         return;
     }
 
+    // Jianpu: accidentals are drawn as text inside draw(Note*); skip standard symbol here
+    if (item->onJianpuStaff()) {
+        return;
+    }
+
     painter->setPen(item->curColor(opt));
     for (const Accidental::LayoutData::Sym& e : item->ldata()->syms) {
         item->drawSymbol(e.sym, painter, PointF(e.x, e.y));
@@ -587,6 +594,40 @@ void TDraw::draw(const Articulation* item, Painter* painter, const PaintOptions&
     TRACE_DRAW_ITEM;
 
     painter->setPen(item->curColor(opt));
+
+    // ── 简谱分支：staccato/staccatissimo 绘制倒立小三角形 ──
+    if (item->staff() && item->staff()->staffTypeForElement(item)->isJianpuStaff()) {
+        SymId sym = item->symId();
+        bool isStacc = (sym == SymId::articStaccatoAbove || sym == SymId::articStaccatoBelow);
+        bool isStacciss = (sym == SymId::articStaccatissimoAbove || sym == SymId::articStaccatissimoBelow
+                           || sym == SymId::articStaccatissimoWedgeAbove || sym == SymId::articStaccatissimoWedgeBelow
+                           || sym == SymId::articStaccatissimoStrokeAbove || sym == SymId::articStaccatissimoStrokeBelow);
+        if (isStacc || isStacciss) {
+            double sp = item->spatium();
+            double w = sp * 0.55;   // 参考 articStaccatissimoAbove 宽 0.4sp，三角形略宽
+            double h = sp * 1.0;    // 参考 articMarcatoAbove 高 1.016sp
+            double lineW = sp * 0.06;
+            // 倒立三角形：左对齐（x=0 为左边，x=w 为右边），与 SMuFL 符号锅点一致
+            // 底边在上（y = -h），尖端在下（y = 0）指向音符
+            PainterPath path;
+            path.moveTo(0.0, -h);        // 左上
+            path.lineTo(w, -h);          // 右上
+            path.lineTo(w * 0.5, 0.0);   // 下尖（左右居中）
+            path.closeSubpath();
+            if (isStacc) {
+                // staccato：空心倒立小三角形（只画轮廓）
+                Pen pen(item->curColor(opt), lineW, PenStyle::SolidLine, PenCapStyle::RoundCap, PenJoinStyle::RoundJoin);
+                painter->setPen(pen);
+                painter->setBrush(BrushStyle::NoBrush);
+            } else {
+                // staccatissimo：实心倒立小三角形
+                painter->setNoPen();
+                painter->setBrush(Brush(item->curColor(opt)));
+            }
+            painter->drawPath(path);
+            return;
+        }
+    }
 
     if (item->textType() == ArticulationTextType::NO_TEXT) {
         item->drawSymbol(item->symId(), painter);
@@ -908,6 +949,7 @@ void TDraw::draw(const BarLine* item, Painter* painter, const PaintOptions& opt)
 void TDraw::draw(const Beam* item, Painter* painter, const PaintOptions& opt)
 {
     TRACE_DRAW_ITEM;
+
     if (item->beamSegments().empty()) {
         return;
     }
@@ -2102,6 +2144,56 @@ void TDraw::draw(const KeySig* item, Painter* painter, const PaintOptions& opt)
     const KeySig::LayoutData* ldata = item->ldata();
 
     painter->setPen(item->curColor(opt));
+
+    // ── 简谱分支：绘制 "1=X" 格式调号 ──
+    if (item->staff() && item->staff()->staffType(item->tick())->isJianpuStaff()) {
+        // 如果同一 tick 有 TimeSig，TimeSig 已经绘制了 "1=X N/M"，跳过
+        const Segment* seg = item->segment();
+        if (seg) {
+            Segment* tsSeg = seg->measure()->findSegmentR(SegmentType::TimeSig, seg->rtick());
+            if (tsSeg && tsSeg->element(item->track())) {
+                return;
+            }
+        }
+
+        // 仅在首小节与转调小节渲染；每行行首重复的 "1=X" 不显示
+        if (!jianpuKeySigVisible(item)) {
+            return;
+        }
+
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        f.setPointSizeF(fontSize * item->magS());
+
+        // 简谱调号显示区分两种模式：
+        //   - JIANPU_FIXED（固定调 Fixed Do）：无论五线谱调号为何，永远显示 1=C
+        //   - JIANPU_MOVABLE（首调 Movable Do）：根据五线谱调号映射（如 F 调显示 1=F）
+        const StaffType* stJp = item->staff()->staffType(item->tick());
+        String keySigStr;
+        if (stJp->type() == StaffTypes::JIANPU_FIXED) {
+            keySigStr = String(u"1=C");
+        } else {
+            static const char16_t* jianpuKeyNames[] = {
+                u"\u266dC", u"\u266dG", u"\u266dD", u"\u266dA", u"\u266dE", u"\u266dB",
+                u"F", u"C",
+                u"G", u"D", u"A", u"E", u"B", u"#F", u"#C"
+            };
+            // 首调简谱的调号来源于关联五线谱（primaryStaff）而非简谱自身
+            const Staff* srcStaff = item->staff()->primaryStaff() ? item->staff()->primaryStaff() : item->staff();
+            Key key = srcStaff->key(item->tick());
+            int keyIdx = static_cast<int>(key) + 7;
+            if (keyIdx < 0 || keyIdx > 14) { keyIdx = 7; }
+            keySigStr = String(u"1=") + String(jianpuKeyNames[keyIdx]);
+        }
+
+        RectF bbRef = FontMetrics::boundingRect(f, String(u"0"));
+        double yCenter = -bbRef.y() - bbRef.height() * 0.5;
+
+        painter->setFont(f);
+        painter->drawText(PointF(0, yCenter), keySigStr);
+        return;
+    }
+
     double _spatium = item->spatium();
     double step = _spatium * (item->staff() ? item->staff()->staffTypeForElement(item)->lineDistance().val() * 0.5 : 0.5);
     int lines = item->staff() ? item->staff()->staffTypeForElement(item)->lines() : 5;
@@ -2329,6 +2421,7 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
     const StaffType* staffType = item->staff() ? item->staff()->staffTypeForElement(item) : nullptr;
 
     const bool isTabStaff = staffType && staffType->isTabStaff();
+    const bool isJianpuStaff = staffType && staffType->isJianpuStaff();
     const bool negativeFret = isTabStaff && item->negativeFretUsed();
     const bool useCriticalColor = negativeFret && !item->deadNote() && opt.isPrinting;
 
@@ -2357,6 +2450,518 @@ void TDraw::draw(const Note* item, Painter* painter, const PaintOptions& opt)
         const double startPosX = ldata->bbox().x();
         const double yOffset = tab->fretFontYOffset();
         painter->drawText(PointF(startPosX, yOffset * item->magS()), item->fretString());
+    }
+    // Jianpu (numbered musical notation)
+    else if (isJianpuStaff) {
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        f.setPointSizeF(fontSize * item->magS());
+        painter->setFont(f);
+
+        const double startPosX = ldata->bbox().x();  // = 0 for Jianpu notes
+        RectF bb = FontMetrics::boundingRect(f, item->fretString());
+        double yOffset = -bb.y() - bb.height() * 0.5;
+
+        // Jianpu grace note: 整体上移，让数字座落在主音左上角
+        // 与 layoutNote 的偏移保持一致（也是 bb.height() * 0.55）
+        const bool isJianpuGrace = item->chord() && item->chord()->isGrace();
+        double graceYShift = 0.0;
+        if (isJianpuGrace) {
+            graceYShift = -bb.height() * 1.2;
+            yOffset += graceYShift;
+        }
+
+        // Jianpu grace note group: 同一倚音组（graceNotesBefore/After）的多个倚音
+        // 减时线连成一条（类似五线谱符杠分组），这里先定位当前倚音所属的组
+        const GraceNotesGroup* jianpuGraceGroup = nullptr;
+        if (isJianpuGrace) {
+            const EngravingObject* graceParent = item->chord()->explicitParent();
+            if (graceParent && graceParent->isChord()) {
+                const Chord* mainChord = toChord(const_cast<EngravingObject*>(graceParent));
+                const GraceNotesGroup& gnb = mainChord->Chord::graceNotesBefore();
+                const GraceNotesGroup& gna = mainChord->Chord::graceNotesAfter();
+                for (const Chord* gc : gnb) {
+                    if (gc == item->chord()) {
+                        jianpuGraceGroup = &gnb;
+                        break;
+                    }
+                }
+                if (!jianpuGraceGroup) {
+                    for (const Chord* gc : gna) {
+                        if (gc == item->chord()) {
+                            jianpuGraceGroup = &gna;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Chord stacking: a multi-note chord renders as a vertical column of
+        // digits (highest pitch on top). Columns are BOTTOM-aligned: the lowest
+        // digit stays on the note line (level 0) and higher digits stack upward,
+        // so a following single note or smaller chord lines up with the bottom
+        // of the column, e.g. chord-then-single:
+        //   5
+        //   3  2
+        // Column-wide accessories (underlines, sustain dashes, augmentation
+        // dot) are drawn once, by the lowest digit of the stack.
+        double stackShift = 0.0;
+        double columnCenterShift = 0.0;
+        bool isLowestOfStack = true;
+        // Polyphonic Jianpu renders each voice on its own row (see
+        // ChordLayout::layoutJianpu), so cross-voice digits never overprint:
+        // stacking here only applies to real chords (multiple notes, one voice).
+        if (item->chord() && !isJianpuGrace && item->chord()->notes().size() > 1) {
+            const std::vector<Note*>& stackNotes = item->chord()->notes();
+            const int stackCount = int(stackNotes.size());
+            int rank = 0;  // 0 = highest pitch
+            for (const Note* other : stackNotes) {
+                if (other != item && other->pitch() > item->pitch()) {
+                    ++rank;
+                }
+            }
+            const double stackStep = bb.height() * 1.4;
+            const int level = (stackCount - 1) - rank;  // 0 = bottom of column
+            stackShift = -level * stackStep;
+            columnCenterShift = -((stackCount - 1) * 0.5) * stackStep;
+            isLowestOfStack = (level == 0);
+            yOffset += stackShift;
+        }
+
+        // Draw accidental symbol at top-left of the digit using SMuFL glyph (same as standard staff).
+        // Accidental is drawn to the LEFT of startPosX (may overflow bbox).
+        // The digit keeps its sounding pitch through the measure, but the
+        // accidental glyph is printed only where an Accidental is attached.
+        // Drawing jianpuAlter() on every note repeats #/b after the first note.
+        AccidentalType accType = AccidentalType::NONE;
+        const Accidental* acc = item->accidental();
+        if (acc && acc->visible()) {
+            // Western notation may call B-natural in 1=F a natural, while
+            // Jianpu writes it as #4. Use the relative alteration for the
+            // displayed symbol; zero means an explicit cancellation (natural).
+            switch (item->jianpuAlter()) {
+            case -2: accType = AccidentalType::FLAT2; break;
+            case -1: accType = AccidentalType::FLAT; break;
+            case  0: accType = AccidentalType::NATURAL; break;
+            case  1: accType = AccidentalType::SHARP; break;
+            case  2: accType = AccidentalType::SHARP2; break;
+            default: break;
+            }
+        }
+        if (accType != AccidentalType::NONE) {
+            SymId accSym = Accidental::subtype2symbol(accType);
+            if (accSym != SymId::noSym) {
+                // Per-symbol scale tuning: sharp is visually larger, flat/natural are smaller.
+                double symScaleFactor;
+                switch (accType) {
+                case AccidentalType::SHARP:
+                case AccidentalType::SHARP2:
+                case AccidentalType::SHARP_SHARP:
+                case AccidentalType::NATURAL_SHARP:
+                    symScaleFactor = 0.62;  // sharp is large glyph, scale down
+                    break;
+                case AccidentalType::FLAT:
+                case AccidentalType::FLAT2:
+                case AccidentalType::NATURAL_FLAT:
+                    symScaleFactor = 0.82;  // flat is narrower/shorter, scale up
+                    break;
+                case AccidentalType::NATURAL:
+                    symScaleFactor = 0.82;  // natural also needs to be larger
+                    break;
+                default:
+                    symScaleFactor = 0.75;
+                    break;
+                }
+                double accScale = item->magS() * symScaleFactor;
+                RectF accSymBb = item->symBbox(accSym);
+                // drawSymbol(pos, scale): pos is the glyph origin (baseline-left).
+                // Position origin at digit visual top so symbol occupies upper-left of digit.
+                // For grace notes the digit is shifted up by graceYShift, so the accidental
+                // must follow to stay at the digit's upper-left (not at the main-note position).
+                double digitVisualTop = -(bb.height() * 0.5) + graceYShift + stackShift;
+                // Per-symbol Y offset: flat glyph extends upward from baseline more than
+                // sharp/natural, so shift it down slightly to align visually.
+                double yExtraOffset = 0.0;
+                if (accType == AccidentalType::FLAT
+                    || accType == AccidentalType::FLAT2
+                    || accType == AccidentalType::NATURAL_FLAT) {
+                    yExtraOffset = bb.height() * 0.15;  // shift flat down by ~15% of digit height
+                }
+                double accY = digitVisualTop + yExtraOffset;
+                double accW = accSymBb.width() * accScale;
+                double accX = startPosX - accW;
+                painter->setPen(item->curColor(opt));
+                item->drawSymbol(accSym, painter, PointF(accX, accY), accScale);
+            }
+        }
+
+        painter->drawText(PointF(startPosX, yOffset), item->fretString());
+
+        // Jianpu grace note: 绘制指向主音的小弧线
+        // 仅对 graceNotesBefore 的最后一个 grace（最靠近主音的）绘制，避免多个弧线重叠
+        if (isJianpuGrace) {
+            const Chord* graceChord = item->chord();
+            const EngravingObject* parent = graceChord->explicitParent();
+            bool isLastGraceBefore = false;
+            if (parent && parent->isChord()) {
+                const Chord* mainChord = toChord(const_cast<EngravingObject*>(parent));
+                const GraceNotesGroup& gnb = mainChord->Chord::graceNotesBefore();
+                if (!gnb.empty() && gnb.back() == graceChord) {
+                    isLastGraceBefore = true;
+                }
+            }
+            if (isLastGraceBefore) {
+                double digitW = FontMetrics::width(f, item->fretString());
+                double spatium = item->spatium();
+                // 弧线：起点 = grace 数字底部中左；终点 = 主音左上角
+                // 形状：小 L 形弧，凸起方向朝左下（弧顶在起终点连线的左下方）
+                double digitBottomY = -bb.height() * 0.5 + graceYShift + bb.height();
+                // 起点：grace 数字底部中左；同组多倚音减时线相连时改为从减时线组右端起弧，
+                // 避免弧线穿过连成的减时线
+                bool connectedGraceGroup = jianpuGraceGroup && jianpuGraceGroup->size() > 1;
+                double curveStartX = startPosX + digitW * 0.35;
+                double curveStartY = digitBottomY;
+                if (connectedGraceGroup) {
+                    int graceHooks = item->chord()->durationType().hooks();
+                    double graceBaseY = -bb.y() - bb.height() * 0.5 + graceYShift + bb.height() * 0.12;
+                    double graceLineSpacing = bb.height() * 0.13;
+                    curveStartX = startPosX + digitW;
+                    curveStartY = graceBaseY + (graceHooks > 0 ? graceHooks - 1 : 0) * graceLineSpacing;
+                }
+                // 终点：主音左上角（主音左缘 ≈ grace 右缘 + 0.8sp，顶部 ≈ -0.5sp）
+                double curveEndX = startPosX + digitW + spatium * 0.8;
+                double curveEndY = -spatium * 0.5;
+                // 使用二次 Bézier：弧顶控制点在连线中点的左下方
+                //   midX = 连线中点 - 0.35sp（偏左更多）
+                //   midY = 连线中点 + 0.55sp（偏下更多）→ 弧度更大、更 L 形
+                double midX = (curveStartX + curveEndX) * 0.5 - spatium * 0.35;
+                double midY = (curveStartY + curveEndY) * 0.5 + spatium * 0.55;
+                // PainterPath 无 quadTo，二次 → 三次 Bézier 换算：
+                // c1 = P0 + 2/3 * (C - P0)，c2 = P2 + 2/3 * (C - P2)
+                double c1x = curveStartX + (2.0 / 3.0) * (midX - curveStartX);
+                double c1y = curveStartY + (2.0 / 3.0) * (midY - curveStartY);
+                double c2x = curveEndX + (2.0 / 3.0) * (midX - curveEndX);
+                double c2y = curveEndY + (2.0 / 3.0) * (midY - curveEndY);
+                PainterPath path;
+                path.moveTo(curveStartX, curveStartY);
+                path.cubicTo(c1x, c1y, c2x, c2y, curveEndX, curveEndY);
+                painter->save();
+                painter->setPen(Pen(item->curColor(opt), spatium * 0.08,
+                                    PenStyle::SolidLine, PenCapStyle::RoundCap));
+                painter->setBrush(BrushStyle::NoBrush);
+                painter->drawPath(path);
+                painter->restore();
+            }
+        }
+
+        // Draw duration underlines (减时线)
+        // 前倚音仍然绘制减时线（反映其自身时值），但不参与主音所在拍的分组：
+        // 改按倚音组分组，同组多个倚音的减时线连成一条
+        if (item->chord() && isLowestOfStack) {
+            const Chord* chord = item->chord();
+            int hooks = chord->durationType().hooks();
+            if (hooks > 0) {
+                // grace 数字已整体上移 graceYShift，减时线也要同步上移
+                double digitBaseline = -bb.y() - bb.height() * 0.5 + graceYShift + stackShift;
+                double baseY = digitBaseline + bb.height() * 0.12;
+                double lineThickness = bb.height() * 0.06;
+                double lineSpacing = bb.height() * 0.13;
+
+                // One staff beam group = one underline group; never connect
+                // across group boundaries.
+                // x/8 meters follow the staff beaming groups (Groups table or
+                // custom timesig groups): 5/8 -> 3+2, 7/8 -> 3+2+2, 6/8 -> 3+3,
+                // 9/8 -> 3+3+3, ...; the 8th-level beam begins (action nibble
+                // 1) mark the underline group boundaries.
+                // Other denominators keep one beat = one group, with compound
+                // meters (6/16, 9/16, ...) taking the dotted unit (3/denom).
+                track_idx_t jianpuTrack = chord->track();
+                std::vector<const ChordRest*> jianpuCrs;
+
+                const Measure* meas = chord->measure();
+                TimeSig* ts = item->staff()->timeSig(chord->tick());
+                int num = ts ? ts->numerator() : 4;
+                int denom = ts ? ts->denominator() : 4;
+                const int relTicks = (chord->tick() - meas->tick()).ticks();
+                int groupStartTicks = 0;
+                int groupEndTicks = (meas->endTick() - meas->tick()).ticks();
+                if (denom == 8) {
+                    const Staff* srcStaff = item->staff()->primaryStaff();
+                    if (!srcStaff) {
+                        srcStaff = item->staff();
+                    }
+                    const Groups& groups = srcStaff->group(chord->tick());
+                    const int dm = Constants::DIVISION / 8;  // node pos unit: 32nd ticks
+                    for (const GroupNode& n : groups.nodes()) {
+                        if ((n.action & 0xf) != 1) {
+                            continue;  // not an 8th-level beam begin
+                        }
+                        const int posTicks = n.pos * dm;
+                        if (posTicks <= relTicks) {
+                            groupStartTicks = posTicks;
+                        } else {
+                            groupEndTicks = posTicks;
+                            break;
+                        }
+                    }
+                } else {
+                    bool compoundBeat = (num % 3 == 0 && num > 3) || (num == 3 && denom >= 8);
+                    Fraction beatLen = compoundBeat ? Fraction(3, denom) : Fraction(1, denom);
+                    const int ticksPerBeat = beatLen.ticks();
+                    const int beatIndex = relTicks / ticksPerBeat;
+                    groupStartTicks = beatIndex * ticksPerBeat;
+                    groupEndTicks = groupStartTicks + ticksPerBeat;
+                }
+                const Fraction beatStart = meas->tick() + Fraction::fromTicks(groupStartTicks);
+                const Fraction beatEnd = meas->tick() + Fraction::fromTicks(groupEndTicks);
+
+                // grace chord 不在 meas 的 ChordRest 段里：按倚音组分组
+                if (isJianpuGrace) {
+                    if (jianpuGraceGroup) {
+                        for (const Chord* gc : *jianpuGraceGroup) {
+                            if (gc->durationType().hooks() > 0) {
+                                jianpuCrs.push_back(gc);
+                            }
+                        }
+                    }
+                } else {
+                    for (Segment* seg = meas->first(SegmentType::ChordRest); seg;
+                         seg = seg->next(SegmentType::ChordRest)) {
+                        if (seg->tick() >= beatEnd) break;
+                        if (seg->tick() < beatStart) continue;
+                        EngravingItem* el = seg->element(jianpuTrack);
+                        if (el && el->isChordRest()) {
+                            const ChordRest* cr = toChordRest(el);
+                            if (cr->durationType().hooks() > 0) {
+                                jianpuCrs.push_back(cr);
+                            }
+                        }
+                    }
+                }
+
+                // Draw underlines
+                if (jianpuCrs.size() > 1) {
+                    // Connected underlines (level-by-level)
+                    int maxHooks = 0;
+                    for (const ChordRest* cr : jianpuCrs) {
+                        maxHooks = std::max(maxHooks, cr->durationType().hooks());
+                    }
+
+                    // Measure rest "0" digit width once for endpoint calculations
+                    // (f already carries magS scaling, do not multiply again)
+                    double restDigitW = FontMetrics::width(f, String(u"0"));
+
+                    double thisNotePageX = item->pagePos().x();
+                    Pen pen(item->curColor(opt), lineThickness, PenStyle::SolidLine, PenCapStyle::FlatCap);
+                    painter->setPen(pen);
+
+                    for (int level = 1; level <= maxHooks; ++level) {
+                        const ChordRest* subStart = nullptr;
+                        for (size_t i = 0; i <= jianpuCrs.size(); ++i) {
+                            const ChordRest* cr = (i < jianpuCrs.size()) ? jianpuCrs[i] : nullptr;
+                            bool hasLevel = cr && cr->durationType().hooks() >= level;
+                            if (hasLevel && !subStart) {
+                                subStart = cr;
+                            } else if (!hasLevel && subStart) {
+                                const ChordRest* subEnd = jianpuCrs[i - 1];
+                                double sX, eX;
+                                if (subStart->isChord()) {
+                                    const Note* fn = toChord(subStart)->notes().front();
+                                    sX = fn->pagePos().x() + fn->ldata()->bbox().x() - thisNotePageX;
+                                } else {
+                                    sX = subStart->pagePos().x() + subStart->ldata()->bbox().x() - thisNotePageX;
+                                }
+                                if (subEnd->isChord()) {
+                                    const Note* ln = toChord(subEnd)->notes().front();
+                                    double digitW = FontMetrics::width(f, ln->fretString());
+                                    eX = ln->pagePos().x() + ln->ldata()->bbox().x() + digitW - thisNotePageX;
+                                } else {
+                                    // Rest: use actual "0" digit width, not extended bbox
+                                    eX = subEnd->pagePos().x() + subEnd->ldata()->bbox().x()
+                                         + restDigitW - thisNotePageX;
+                                }
+                                double y = baseY + (level - 1) * lineSpacing;
+                                painter->drawLine(PointF(sX, y), PointF(eX, y));
+                                subStart = nullptr;
+                            }
+                        }
+                    }
+                } else {
+                    // Single note - draw individual underlines
+                    double lineEndX = startPosX + bb.width();
+                    Pen pen(item->curColor(opt), lineThickness, PenStyle::SolidLine, PenCapStyle::FlatCap);
+                    painter->setPen(pen);
+                    for (int i = 0; i < hooks; ++i) {
+                        double y = baseY + i * lineSpacing;
+                        painter->drawLine(PointF(startPosX, y), PointF(lineEndX, y));
+                    }
+                }
+            }
+        }
+
+        // Draw octave dots above/below the digit.
+        // octaveOffset: 0=middle octave, +N=N dots above, -N=N dots below
+        //   Fixed Do: 中音区 = C4..B4 (pitch/12-5 == 0)
+        //   Movable Do: 中音区 = [tonicMidi, tonicMidi+12)，主音取中央C所在八度
+        //   （tonicMidi = 60+chroma ∈ [60,71]），即各调中音主音 1 均不带八度点。
+        //   注意：不可对 A/bB/B 调做 -12 特判，否则中音主音会被画到较低八度。
+        {
+            int pitch = item->pitch();
+            const bool isFixedDo = staffType && (staffType->type() == StaffTypes::JIANPU_FIXED);
+            int octaveOffset;
+            if (isFixedDo) {
+                octaveOffset = pitch / 12 - 5; // C4 pitch=60 → 0
+            } else {
+                const Staff* st = item->staff();
+                const Staff* src = (st && st->primaryStaff()) ? st->primaryStaff() : st;
+                Key effKey = src ? src->key(item->chord()->tick()) : Key::C;
+                static const int keyToChroma[15] = {
+                    11,  6,  1,  8,  3, 10, 5,  0,  7,  2,  9,  4, 11,  6,  1
+                };
+                int keyIdx = int(effKey) + 7;
+                if (keyIdx < 0 || keyIdx > 14) { keyIdx = 7; }
+                int tonicMidi = 60 + keyToChroma[keyIdx];
+                int diff = pitch - tonicMidi;
+                octaveOffset = (diff >= 0) ? (diff / 12) : -((-diff + 11) / 12);
+            }
+
+            if (octaveOffset != 0) {
+                // Use bb.height() (already font-scaled) as reference for dot proportions
+                double dotRadius = bb.height() * 0.07;
+                double dotSpacing = bb.height() * 0.22;
+                // Horizontal center of the digit.
+                // Jianpu fretString only contains the digit (1-7); accidental is
+                // drawn separately as a SMuFL glyph at the top-left.
+                double advanceW = FontMetrics::width(f, item->fretString());
+                double digitCenterX = startPosX + advanceW * 0.5;
+
+                painter->save();
+                painter->setPen(Pen(item->curColor(opt), 0.0));
+                painter->setBrush(Brush(item->curColor(opt)));
+
+                if (octaveOffset > 0) {
+                    // Dots above the digit
+                    // First dot sits just above the digit top
+                    double digitTop = -(bb.height() * 0.5) + graceYShift + stackShift;  // digit top in local coords
+                    double firstDotCenterY = digitTop - dotRadius - bb.height() * 0.15;
+                    for (int i = 0; i < octaveOffset; ++i) {
+                        double dotCY = firstDotCenterY - i * dotSpacing;
+                        painter->drawEllipse(RectF(digitCenterX - dotRadius, dotCY - dotRadius,
+                                                   dotRadius * 2, dotRadius * 2));
+                    }
+                } else {
+                    // Dots below (below the underlines area)
+                    int absDots = -octaveOffset;
+                    // Compute the bottom of the last underline using the same formula
+                    // as the underline drawing code above
+                    int hooks = item->chord() ? item->chord()->durationType().hooks() : 0;
+                    double digitBaseline2 = -bb.y() - bb.height() * 0.5 + graceYShift + stackShift;
+                    double underlineBaseY = digitBaseline2 + bb.height() * 0.12;
+                    double ulLineSpacing = bb.height() * 0.13;
+                    double ulLineThickness = bb.height() * 0.06;
+                    double lastUnderlineBottom;
+                    if (hooks > 0) {
+                        lastUnderlineBottom = underlineBaseY + (hooks - 1) * ulLineSpacing + ulLineThickness * 0.5;
+                    } else {
+                        // No underlines, place dots below the digit baseline
+                        lastUnderlineBottom = digitBaseline2;
+                    }
+                    double firstDotCenterY = lastUnderlineBottom + dotRadius + bb.height() * 0.15;
+                    for (int i = 0; i < absDots; ++i) {
+                        double dotCY = firstDotCenterY + i * dotSpacing;
+                        painter->drawEllipse(RectF(digitCenterX - dotRadius, dotCY - dotRadius,
+                                                   dotRadius * 2, dotRadius * 2));
+                    }
+                }
+
+                painter->restore();
+            }
+        }
+
+        // Draw sustain dashes for half/whole notes (延时横线)
+        if (item->chord() && isLowestOfStack) {
+            const Chord* chord = item->chord();
+            DurationType dtype = chord->durationType().type();
+            int extraBeats = 0;
+            if (dtype == DurationType::V_HALF) {
+                extraBeats = 1;
+            } else if (dtype == DurationType::V_WHOLE) {
+                extraBeats = 3;
+            } else if (dtype == DurationType::V_BREVE) {
+                extraBeats = 7;
+            }
+            if (extraBeats > 0 && chord->dots() > 0) {
+                int base = extraBeats + 1;
+                int added = 0;
+                int cur = base;
+                for (int d = 0; d < chord->dots(); ++d) {
+                    cur /= 2;
+                    added += cur;
+                }
+                extraBeats = base + added - 1;
+            }
+            if (extraBeats > 0) {
+                const Segment* curSeg = chord->segment();
+                const Measure* meas = chord->measure();
+                if (curSeg && meas) {
+                    const Segment* nextSeg = curSeg->next(SegmentType::ChordRest);
+                    double availableWidth = (nextSeg && nextSeg->measure() == meas)
+                        ? (nextSeg->x() - curSeg->x())
+                        : (meas->width() - curSeg->x());
+                    if (availableWidth > 0.0) {
+                        int totalBeats = extraBeats + 1;
+                        double beatWidth = availableWidth / totalBeats;
+                        double advanceW = FontMetrics::width(f, item->fretString());
+                        double dashHalfLen = advanceW * 0.45;
+                        // Dash at column vertical center
+                        double dashY = (yOffset + columnCenterShift) + bb.y() / 2.0;
+                        double dashThickness = bb.height() * 0.09;
+                        LOGD("[Jianpu-Dash] extraBeats=%d, yOffset=%.2f, bb.y=%.2f, bb.h=%.2f, "
+                             "dashY=%.2f, thickness=%.2f",
+                             extraBeats, yOffset, bb.y(), bb.height(), dashY, dashThickness);
+                        painter->save();
+                        Pen dashPen(item->curColor(opt), dashThickness,
+                                    PenStyle::SolidLine, PenCapStyle::FlatCap);
+                        painter->setPen(dashPen);
+                        for (int i = 1; i <= extraBeats; ++i) {
+                            double cx = startPosX + beatWidth * i + advanceW * 0.5;
+                            painter->drawLine(PointF(cx - dashHalfLen, dashY),
+                                              PointF(cx + dashHalfLen, dashY));
+                        }
+                        painter->restore();
+                    }
+                }
+            }
+        }
+
+        // Draw augmentation dots (附点) right after the digit for dotted durations
+        // shorter than a half note; half/whole/breve already express the dot via
+        // extra sustain dashes (see above).
+        if (item->chord() && !item->dots().empty() && !item->dotsHidden()) {
+            DurationType dottedType = item->chord()->durationType().type();
+            if (dottedType != DurationType::V_HALF && dottedType != DurationType::V_WHOLE
+                && dottedType != DurationType::V_BREVE) {
+                double advanceW = FontMetrics::width(f, item->fretString());
+                double dotRadius = bb.height() * 0.07;
+                double dotGap = bb.height() * 0.18;
+                // one dot per digit: each stacked note dots its own level
+                // Jianpu print convention: the augmentation dot sits low,
+                // near the digit baseline (~3/4 down), not at mid-height.
+                double dotCY = yOffset + bb.y() + bb.height() * 0.75;
+                painter->save();
+                painter->setPen(Pen(item->curColor(opt), 0.0));
+                painter->setBrush(Brush(item->curColor(opt)));
+                int nDots = static_cast<int>(item->dots().size());
+                for (int d = 0; d < nDots; ++d) {
+                    double dotCX = startPosX + advanceW + dotGap + dotRadius
+                                   + d * (dotRadius * 2.0 + dotGap * 0.5);
+                    painter->drawEllipse(RectF(dotCX - dotRadius, dotCY - dotRadius,
+                                               dotRadius * 2.0, dotRadius * 2.0));
+                }
+                painter->restore();
+            }
+        }
     }
     // NOT tablature
     else {
@@ -2401,6 +3006,12 @@ void TDraw::draw(const NoteDot* item, Painter* painter, const PaintOptions& opt)
     if (item->note() && item->note()->dotsHidden()) {     // don't draw dot if note is hidden
         return;
     } else if (item->rest() && item->rest()->isGap()) {  // don't draw dot for gap rests
+        return;
+    }
+    // Jianpu: augmentation dots are drawn inside draw(Note*)/draw(Rest*) themselves
+    // (dot after the digit for short durations, extra dashes/"0"s for long ones);
+    // skip the standard dot symbol here.
+    if (item->onJianpuStaff()) {
         return;
     }
     const Note* n = item->note();
@@ -2523,6 +3134,187 @@ void TDraw::draw(const Rest* item, Painter* painter, const PaintOptions& opt)
     }
 
     const Rest::LayoutData* ldata = item->ldata();
+
+    // Jianpu: draw rest as "0"
+    if (item->onJianpuStaff()) {
+        // Invisible (placeholder) rests carry no information on the single
+        // Jianpu line; drawing their "0" would collide with played voices.
+        if (!item->visible()) {
+            return;
+        }
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        f.setPointSizeF(fontSize * item->magS());
+        painter->setFont(f);
+
+        String restStr(u"0");
+        const double startPosX = ldata->bbox().x();
+        RectF bb = FontMetrics::boundingRect(f, restStr);
+        double yOffset = -bb.y() - bb.height() * 0.5;
+        // Multi-beat rest: display multiple "0"s for half/whole rests
+        DurationType rdtype = item->durationType().type();
+        // NOTE: a measure rest that shares the measure with played chords belongs
+        // to a separate voice. Jianpu renders each voice on its own row (see the
+        // voice-row offsets in RestLayout / ChordLayout), so the "0" group is drawn
+        // on the rest's own voice row instead of being skipped.
+        int totalRestBeats = 1;
+        int restHooks = 0;  // underlines per "0" when the beat unit is shorter than a quarter
+        if (rdtype == DurationType::V_HALF) {
+            totalRestBeats = 2;
+        } else if (rdtype == DurationType::V_WHOLE || rdtype == DurationType::V_MEASURE) {
+            totalRestBeats = 4;
+            // Measure rest: one "0" per beat of the measure, not always 4.
+            // 3/4 -> 3 zeros, 2/4 -> 2, 3/8 -> 3 underlined zeros, 6/8 -> 6, ...
+            if (rdtype == DurationType::V_MEASURE && item->measure()) {
+                const Fraction ts = item->measure()->timesig();
+                const int denom = ts.denominator() > 0 ? ts.denominator() : 4;
+                const Fraction mlen = item->measure()->stretchedLen(item->staff());
+                // "0" unit: quarter by default; half-note beats (x/2) are expanded
+                // into quarter "0"s; 8th/16th/... beats get underlines instead.
+                const int unitDenom = denom < 4 ? 4 : denom;
+                int zeros = (mlen.numerator() * unitDenom + mlen.denominator() / 2) / mlen.denominator();
+                if (zeros < 1) {
+                    zeros = 1;
+                }
+                totalRestBeats = zeros;
+                switch (denom) {
+                case 8:  restHooks = 1; break;
+                case 16: restHooks = 2; break;
+                case 32: restHooks = 3; break;
+                case 64: restHooks = 4; break;
+                default: restHooks = 0; break;
+                }
+            }
+        } else if (rdtype == DurationType::V_BREVE) {
+            totalRestBeats = 8;
+        }
+        if (totalRestBeats > 1 && item->dots() > 0) {
+            int cur = totalRestBeats;
+            for (int d = 0; d < item->dots(); ++d) {
+                cur /= 2;
+                totalRestBeats += cur;
+            }
+        }
+        // Compute "0" positions: beat-based, centered in available space
+        double textW = FontMetrics::width(f, restStr);
+        double zeroStart = startPosX;
+        double zeroSpacing = 0.0;
+        bool multiZero = totalRestBeats > 1;
+        if (multiZero) {
+            const Segment* curSeg = item->segment();
+            const Measure* meas = item->measure();
+            if (curSeg && meas) {
+                // Available width from segment position (not element position!)
+                // V_MEASURE rests have large item->x() due to layout centering;
+                // V_HALF/V_WHOLE rests have item->x()=0.
+                // Segments are system-wide: other staves' notes create ChordRest
+                // segments inside this rest's span, so the "0" group must end at
+                // the rest's own end tick (or the measure end), never at the
+                // next ChordRest segment belonging to another staff/voice.
+                double availW;
+                const Segment* endSeg = (rdtype == DurationType::V_MEASURE) ? nullptr
+                    : meas->findSegmentR(SegmentType::ChordRest,
+                                         item->rtick() + item->actualTicks());
+                if (endSeg) {
+                    availW = endSeg->x() - curSeg->x();
+                } else {
+                    const Segment* blSeg = meas->findFirstR(SegmentType::EndBarLine, meas->ticks());
+                    const double rightEdge = (blSeg && blSeg->enabled()) ? blSeg->x() : meas->width();
+                    availW = rightEdge - curSeg->x();
+                    availW -= item->spatium() * 1.5;  // barline visual margin
+                    if (!meas->nextMeasure()) {
+                        availW -= item->spatium() * 0.5;  // extra margin for final barline
+                    }
+                }
+                if (availW < textW) availW = textW;
+                // Segment start in draw coords (undo layout centering offset)
+                double segStart = -item->x();
+                // Spacing: beat-based, capped to prevent overflow.
+                // Measure rests stretch the "0" group across the free width so a
+                // rest measure reads like a played one; other long rests keep
+                // their beat slots (e.g. a half rest before played beats).
+                double beatSpacing = availW / totalRestBeats;
+                double fitSpacing = (availW - textW) / (totalRestBeats - 1);
+                if (fitSpacing < 0) fitSpacing = 0;
+                double spacing = (rdtype == DurationType::V_MEASURE)
+                    ? fitSpacing : std::min(beatSpacing, fitSpacing);
+                // Center the "0" group within available space
+                double groupWidth = (totalRestBeats - 1) * spacing + textW;
+                zeroStart = segStart + (availW - groupWidth) / 2.0;
+                zeroSpacing = spacing;
+                LOGD("[Jianpu-Rest] totalBeats=%d, rdtype=%d, "
+                     "curSeg->x()=%.2f, meas->w()=%.2f, item->x()=%.2f, "
+                     "availW=%.2f, textW=%.2f, spacing=%.2f, "
+                     "groupW=%.2f, groupStart=%.2f, segStart=%.2f",
+                     totalRestBeats, (int)rdtype,
+                     curSeg->x(), meas->width(), item->x(),
+                     availW, textW, spacing,
+                     groupWidth, zeroStart, segStart);
+            } else {
+                multiZero = false;
+            }
+        }
+
+        // Draw "0"s at beat positions.
+        // NOTE: Painter::drawText() accumulates font-size scaling internally,
+        // so the font must be reset before EVERY drawText call, otherwise the
+        // 2nd and later "0"s balloon exponentially (historical Jianpu bug).
+        const int zeroCount = multiZero ? totalRestBeats : 1;
+        for (int i = 0; i < zeroCount; ++i) {
+            double x = multiZero ? (zeroStart + zeroSpacing * i) : startPosX;
+            painter->setFont(f);
+            painter->drawText(PointF(x, yOffset), restStr);
+        }
+
+        // Draw augmentation dot (附点) after the single "0" for short dotted rests;
+        // long rests already express dots via extra "0" beats above.
+        if (item->dots() > 0 && totalRestBeats == 1) {
+            double dotRadius = bb.height() * 0.07;
+            double dotGap = bb.height() * 0.18;
+            // Same low placement as the note augmentation dot (~3/4 down).
+            double dotCY = yOffset + bb.y() + bb.height() * 0.75;
+            painter->save();
+            painter->setPen(Pen(item->curColor(opt), 0.0));
+            painter->setBrush(Brush(item->curColor(opt)));
+            for (int d = 0; d < item->dots(); ++d) {
+                double dotCX = startPosX + textW + dotGap + dotRadius
+                               + d * (dotRadius * 2.0 + dotGap * 0.5);
+                painter->drawEllipse(RectF(dotCX - dotRadius, dotCY - dotRadius,
+                                           dotRadius * 2.0, dotRadius * 2.0));
+            }
+            painter->restore();
+        }
+
+        // Draw duration underlines (减时线) under every "0"
+        int hooks = item->durationType().hooks();
+        if (restHooks > hooks) {
+            hooks = restHooks;
+        }
+        if (hooks > 0) {
+            double lineWidth = bb.width();
+            if (multiZero && zeroSpacing > 0.0) {
+                // Keep a visible break between adjacent "0" underline segments
+                lineWidth = std::min(lineWidth, zeroSpacing * 0.8);
+            }
+            double digitBaseline = -bb.y() - bb.height() * 0.5;  // = yOffset
+            double baseY = digitBaseline + bb.height() * 0.12;
+            double lineThickness = bb.height() * 0.06;
+            double lineSpacing = bb.height() * 0.13;
+
+            Pen pen(item->curColor(opt), lineThickness, PenStyle::SolidLine, PenCapStyle::FlatCap);
+            painter->setPen(pen);
+
+            // One underline segment per "0"; width capped so segments stay broken
+            for (int k = 0; k < zeroCount; ++k) {
+                double zx = multiZero ? (zeroStart + zeroSpacing * k) : startPosX;
+                for (int i = 0; i < hooks; ++i) {
+                    double y = baseY + i * lineSpacing;
+                    painter->drawLine(PointF(zx, y), PointF(zx + lineWidth, y));
+                }
+            }
+        }
+        return;
+    }
 
     painter->setPen(item->curColor(opt));
 
@@ -3145,6 +3937,92 @@ void TDraw::draw(const TimeSig* item, Painter* painter, const PaintOptions& opt)
         return;
     }
     painter->setPen(item->curColor(opt));
+
+    // ── 简谱分支：绘制 "1=X  N/M" 格式的调号+拍号 ──
+    if (item->onJianpuStaff()) {
+        if (item->isCourtesy()) {
+            return;
+        }
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        f.setPointSizeF(fontSize * item->magS());
+
+        // --- 调号 "1=X" ---
+        // 与 KeySig 逻辑保持一致：
+        //   - JIANPU_FIXED：始终 1=C
+        //   - JIANPU_MOVABLE：根据 primaryStaff 的调号映射
+        static const char16_t* jianpuKeyNames[] = {
+            u"\u266dC", u"\u266dG", u"\u266dD", u"\u266dA", u"\u266dE", u"\u266dB",
+            u"F", u"C",
+            u"G", u"D", u"A", u"E", u"B", u"#F", u"#C"
+        };
+        String keySigStr;
+        const StaffType* stJp = item->staff()->staffType(item->tick());
+        if (stJp && stJp->type() == StaffTypes::JIANPU_FIXED) {
+            keySigStr = String(u"1=C");
+        } else {
+            const Staff* srcStaff = item->staff()->primaryStaff() ? item->staff()->primaryStaff() : item->staff();
+            Key key = srcStaff->key(item->tick());
+            int keyIdx = static_cast<int>(key) + 7;
+            if (keyIdx < 0 || keyIdx > 14) keyIdx = 7;  // fallback to C
+            keySigStr = String(u"1=") + String(jianpuKeyNames[keyIdx]);
+        }
+
+        RectF bbRef = FontMetrics::boundingRect(f, String(u"0"));
+        // 垂直居中：以 painter 原点为基准，数字视觉中心对齐到 y=0
+        double yCenter = -bbRef.y() - bbRef.height() * 0.5;
+
+        // 注意：MuseScore Painter 要求每次 drawText 前必须重新 setFont，
+        // 否则第 3 次及以后的 drawText 会产生巨大字符。
+        // （参考 Rest draw 中 for 循环内每次都调用 setFont 的模式）
+        painter->setFont(f);
+        painter->drawText(PointF(0, yCenter), keySigStr);
+
+        // --- 拍号 N/M（上下堆叠分数形式）---
+        double keySigWidth = FontMetrics::width(f, keySigStr);
+        double gap = bbRef.height() * 0.6;  // 调号与拍号之间的间距
+        double tsX = keySigWidth + gap;
+
+        String numStr = String::number(item->numerator());
+        String denStr = String::number(item->denominator());
+
+        // 使用较小字号绘制拍号分数
+        Font fSmall = jianpuFont(item);
+        double tsScale = 0.9;
+        fSmall.setPointSizeF(fontSize * item->magS() * tsScale);
+
+        RectF bbNum = FontMetrics::boundingRect(fSmall, numStr);
+        RectF bbDen = FontMetrics::boundingRect(fSmall, denStr);
+        double numW = FontMetrics::width(fSmall, numStr);
+        double denW = FontMetrics::width(fSmall, denStr);
+        double maxTsW = std::max(numW, denW);
+
+        // 分数线 Y 坐标 = 调号文字的视觉中心（与 "1=X" 对齐）
+        double fracLineY = yCenter + bbRef.y() / 2.0;
+        double tsGapNum = bbNum.height() * -0.1;   // 分子与分数线的间距（微重叠）
+        double tsGapDen = bbNum.height() * 0.12;   // 分母与分数线的间距（宽松）
+        double lineThick = bbRef.height() * 0.04;
+
+        // 分子：底边在分数线上方 tsGap 处
+        // drawText 的 Y 是 baseline，数字 descent = bbNum.y() + bbNum.height()
+        double numY = fracLineY - tsGapNum - (bbNum.y() + bbNum.height());
+        double numX = tsX + (maxTsW - numW) * 0.5;
+        painter->setFont(fSmall);  // 必须重新 setFont
+        painter->drawText(PointF(numX, numY), numStr);
+
+        // 分母：顶边在分数线下方 tsGap 处
+        double denY = fracLineY + tsGapDen - bbDen.y();
+        double denX = tsX + (maxTsW - denW) * 0.5;
+        painter->setFont(fSmall);  // 必须重新 setFont
+        painter->drawText(PointF(denX, denY), denStr);
+
+        // 分数线
+        Pen fracPen(item->curColor(opt), lineThick, PenStyle::SolidLine, PenCapStyle::FlatCap);
+        painter->setPen(fracPen);
+        painter->drawLine(PointF(tsX, fracLineY), PointF(tsX + maxTsW, fracLineY));
+
+        return;
+    }
 
     const TimeSig::LayoutData* ldata = item->ldata();
 

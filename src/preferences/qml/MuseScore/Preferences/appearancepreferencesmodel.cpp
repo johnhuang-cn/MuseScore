@@ -66,6 +66,11 @@ void AppearancePreferencesModel::init()
         emit foregroundColorChanged();
     });
 
+    notationConfiguration()->jianpuFontChanged().onNotify(this, [this]() {
+        emit currentJianpuFontIndexChanged();
+        emit jianpuTextSizeChanged();
+    });
+
     notationConfiguration()->backgroundChanged().onNotify(this, [this]() {
         emit backgroundColorChanged();
         emit backgroundUseColorChanged();
@@ -315,6 +320,39 @@ void AppearancePreferencesModel::setBodyTextSize(int size)
 
     uiConfiguration()->setBodyFontSize(size);
     emit bodyTextSizeChanged();
+}
+
+int AppearancePreferencesModel::currentJianpuFontIndex() const
+{
+    QString currentFont = notationConfiguration()->jianpuFontFamily();
+    return allFonts().indexOf(currentFont);
+}
+
+int AppearancePreferencesModel::jianpuTextSize() const
+{
+    return notationConfiguration()->jianpuFontSize();
+}
+
+void AppearancePreferencesModel::setCurrentJianpuFontIndex(int index)
+{
+    QStringList fonts = allFonts();
+
+    if (index < 0 || index >= fonts.size()) {
+        return;
+    }
+
+    notationConfiguration()->setJianpuFontFamily(fonts[index]);
+    emit currentJianpuFontIndexChanged();
+}
+
+void AppearancePreferencesModel::setJianpuTextSize(int size)
+{
+    if (size == jianpuTextSize() || size <= 0) {
+        return;
+    }
+
+    notationConfiguration()->setJianpuFontSize(size);
+    emit jianpuTextSizeChanged();
 }
 
 void AppearancePreferencesModel::setBackgroundUseColor(bool value)

@@ -55,7 +55,7 @@ using namespace mu::engraving::rw;
 static RetVal<IReaderPtr> makeReader(int version, bool ignoreVersionError)
 {
     if (!ignoreVersionError) {
-        if (version > Constants::MSC_VERSION) {
+        if (version > Constants::MSC_VERSION && version != 500) {
             return RetVal<IReaderPtr>(make_ret(Err::FileTooNew));
         }
 
@@ -239,7 +239,11 @@ Ret MscLoader::readMasterScore(MasterScore* score, XmlReader& e, bool ignoreVers
         if (e.name() == "museScore") {
             const String version = e.attribute("version");
             const StringList sl = version.split(u'.');
-            score->setMscVersion(sl[0].toInt() * 100 + sl[1].toInt());
+            int intVersion = sl[0].toInt() * 100 + sl[1].toInt();
+            if (intVersion == 500) {
+                intVersion = Constants::MSC_VERSION;
+            }
+            score->setMscVersion(intVersion);
 
             RetVal<IReaderPtr> reader = makeReader(score->mscVersion(), ignoreVersionError);
             if (!reader.ret) {

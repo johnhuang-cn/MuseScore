@@ -592,13 +592,13 @@ void TRead::readItemLink(EngravingItem* item, XmlReader& xml, ReadContext& ctx)
     DO_ASSERT(eid.isValid());
     EIDRegister* eidRegister = ctx.score()->masterScore()->eidRegister();
     EngravingObject* mainElement = eidRegister->itemFromEID(eid);
-    IF_ASSERT_FAILED(mainElement) {
-        LOGE() << "Link failed: Main linked element not found for " << item->typeName() << " at " << ctx.tick().toString();
+    if (!mainElement) {
+        LOGW() << "Link failed: Main linked element not found for " << item->typeName() << " at " << ctx.tick().toString();
         return;
     }
-    IF_ASSERT_FAILED(mainElement->type() == item->type()) {
-        LOGE() << "Link failed: Main element type (" << mainElement->typeName() << ") does not match linked item type (" <<
-            item->typeName() << ") at " << ctx.tick().toString();
+    if (mainElement->type() != item->type()) {
+        LOGW() << "Link failed: Main element type (" << mainElement->typeName() << ") does not match linked item type ("
+               << item->typeName() << ") at " << ctx.tick().toString();
         return;
     }
 
@@ -987,6 +987,21 @@ bool TRead::readProperties(Instrument* item, XmlReader& e, ReadContext& ctx, Par
         StaffName name;
         TRead::read(&name, e);
         item->appendShortName(name);
+    } else if (tag == "InstrumentLabel") {
+        while (e.readNextStartElement()) {
+            const AsciiStringView subTag(e.name());
+            if (subTag == "longName") {
+                StaffName name;
+                TRead::read(&name, e);
+                item->appendLongName(name);
+            } else if (subTag == "shortName") {
+                StaffName name;
+                TRead::read(&name, e);
+                item->appendShortName(name);
+            } else {
+                e.skipCurrentElement();
+            }
+        }
     } else if (tag == "trackName") {
         item->setTrackName(e.readText());
     } else if (tag == "minPitchA") {
@@ -3974,7 +3989,7 @@ void TRead::read(StaffType* t, XmlReader& e, ReadContext& ctx)
     t->setScore(ctx.score());
     t->setGroup(TConv::fromXml(e.asciiAttribute("group"), StaffGroup::STANDARD));
 
-    if (t->group() == StaffGroup::TAB) {
+    if (t->group() == StaffGroup::TAB || t->group() == StaffGroup::JIANPU) {
         t->setGenKeysig(false);
     }
 
@@ -4129,6 +4144,31 @@ bool TRead::readProperties(Staff* s, XmlReader& e, ReadContext& ctx)
             bi->setColor(color);
         }
         e.readNext();
+    } else if (tag == "BracketItem") {
+        BracketType btype = BracketType::NORMAL;
+        int span = 0;
+        int col = -1;
+        bool visible = true;
+        while (e.readNextStartElement()) {
+            const AsciiStringView subTag(e.name());
+            if (subTag == "type") {
+                btype = TConv::fromXml(e.readAsciiText(), BracketType::NORMAL);
+            } else if (subTag == "bracketSpan") {
+                span = e.readInt();
+            } else if (subTag == "level") {
+                col = e.readInt();
+            } else if (subTag == "visible") {
+                visible = e.readBool();
+            } else {
+                e.skipCurrentElement();
+            }
+        }
+        if (col == -1) {
+            col = static_cast<int>(s->brackets().size());
+        }
+        s->setBracketType(col, btype);
+        s->setBracketSpan(col, span);
+        s->setBracketVisible(col, visible);
     } else if (tag == "barLineSpan") {
         const int barLineSpan = e.readInt();
         if (barLineSpan < 0) {

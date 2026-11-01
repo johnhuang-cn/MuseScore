@@ -53,11 +53,26 @@ Rectangle {
     }
 
     function ensureContentVisibleRequested(contentRect) {
-        if (flickable.contentY + flickable.height < contentRect.y + contentRect.height) {
-            flickable.contentY += contentRect.y + contentRect.height - (flickable.contentY + flickable.height)
-        } else if (flickable.contentY > contentRect.y) {
-            flickable.contentY -= flickable.contentY - contentRect.y
-        }
+        // Follow the focus with scrolling only while the user navigates with the
+        // keyboard. Focus changes caused by a mouse click or by a popup (e.g. a
+        // font dropdown) closing must not move the page, otherwise the view jumps
+        // back to the top right after a value has been selected.
+        //
+        // The check is deferred to the next event loop iteration because the
+        // navigation highlight is turned on only after the control has been
+        // activated (see NavigationController::navigateTo), so reading it
+        // synchronously here would also suppress the legitimate keyboard case.
+        Qt.callLater(function() {
+            if (!navigationSection || !navigationSection.highlight) {
+                return
+            }
+
+            if (flickable.contentY + flickable.height < contentRect.y + contentRect.height) {
+                flickable.contentY += contentRect.y + contentRect.height - (flickable.contentY + flickable.height)
+            } else if (flickable.contentY > contentRect.y) {
+                flickable.contentY -= flickable.contentY - contentRect.y
+            }
+        })
     }
 
     StyledFlickable {

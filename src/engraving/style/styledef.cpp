@@ -480,8 +480,8 @@ const std::array<StyleDef::StyleValue, size_t(Sid::STYLES)> StyleDef::styleValue
     styleDef(genClef,                                    true),
     styleDef(hideTabClefAfterFirst,                      true),
     styleDef(genKeysig,                                  true),
-    styleDef(genCourtesyTimesig,                         true),
-    styleDef(genCourtesyKeysig,                          true),
+    styleDef(genCourtesyTimesig,                         false),
+    styleDef(genCourtesyKeysig,                          false),
     styleDef(genCourtesyClef,                            true),
     styleDef(keySigCourtesyBarlineMode,                  PropertyValue(int(CourtesyBarlineMode::DOUBLE_BEFORE_COURTESY))),
     styleDef(timeSigCourtesyBarlineMode,                 PropertyValue(int(CourtesyBarlineMode::ALWAYS_SINGLE))),
@@ -2168,6 +2168,10 @@ const std::array<StyleDef::StyleValue, size_t(Sid::STYLES)> StyleDef::styleValue
     styleDef(palmMuteBeginFilledArrowWidth,              0.85_sp),
     styleDef(palmMuteEndFilledArrowHeight,               1.0_sp),
     styleDef(palmMuteEndFilledArrowWidth,                0.85_sp),
+    styleDef(jianpuFontFace,                             PropertyValue(String(u"Arial"))),
+    styleDef(jianpuFontSize,                             12.0),
+    styleDef(jianpuFontBold,                             false),
+    styleDef(jianpuFontItalic,                           false),
 } };
 
 #undef styleDef

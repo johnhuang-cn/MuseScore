@@ -20,6 +20,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "beamlayout.h"
+#include "jianpufont.h"
 
 #include <unordered_map>
 #include <set>
@@ -43,6 +44,7 @@
 #include "dom/tuplet.h"
 #include "dom/utils.h"
 #include "dom/note.h"
+#include "dom/linkedobjects.h"
 
 #include "layoutcontext.h"
 #include "tlayout.h"
@@ -50,6 +52,9 @@
 #include "beamtremololayout.h"
 #include "tremololayout.h"
 #include "restlayout.h"
+
+#include "draw/fontmetrics.h"
+#include "dom/stafftype.h"
 
 #include "log.h"
 
@@ -69,6 +74,92 @@ void BeamLayout::layout(Beam* item, const LayoutContext& ctx)
     });
     System* system = item->elements().front()->measure()->system();
     item->setParent(system);
+
+    // Jianpu beams: skip standard beam layout (no stems), compute custom shape for dirty-rect
+    const StaffType* stt = item->staffType();
+    if (stt && stt->isJianpuStaff()) {
+        if (!item->elements().empty()) {
+            using namespace muse::draw;
+
+            // Find main beam for full coverage via linked objects
+            const Beam* mainBeam = nullptr;
+            const ChordRest* firstCrLocal = item->elements().front();
+            if (firstCrLocal->isChord()) {
+                const Chord* ch = toChord(firstCrLocal);
+                if (ch->links()) {
+                    for (const EngravingObject* obj : *ch->links()) {
+                        if (obj != ch && obj->type() == ElementType::CHORD) {
+                            mainBeam = static_cast<const Chord*>(obj)->beam();
+                            if (mainBeam) break;
+                        }
+                    }
+                }
+            }
+
+            // Map main beam elements to Jianpu chords for full extent
+            std::vector<const ChordRest*> jianpuCrs;
+            if (mainBeam) {
+                for (const ChordRest* mainCr : mainBeam->elements()) {
+                    if (mainCr->isChord()) {
+                        const Chord* mainCh = toChord(mainCr);
+                        if (mainCh->links()) {
+                            for (const EngravingObject* obj : *mainCh->links()) {
+                                if (obj != mainCh && obj->type() == ElementType::CHORD) {
+                                    const Chord* linked = static_cast<const Chord*>(obj);
+                                    if (linked->staff() && linked->staff()->staffTypeForElement(linked)
+                                        && linked->staff()->staffTypeForElement(linked)->isJianpuStaff()) {
+                                        jianpuCrs.push_back(linked);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            const auto& shapeElements = jianpuCrs.empty()
+                ? std::vector<const ChordRest*>(item->elements().begin(), item->elements().end())
+                : jianpuCrs;
+
+            // Only compute shape if this is the first beam for the group
+            if (!shapeElements.empty()) {
+                const ChordRest* firstShape = shapeElements.front();
+                if (firstShape->isChord() && toChord(firstShape)->beam() != item) {
+                    return; // Skip - another beam handles this group's shape
+                }
+            }
+
+            Font f = jianpuFont(shapeElements.front());
+            double magS = shapeElements.front()->magS();
+            f.setPointSizeF(f.pointSizeF() * magS);
+            RectF bb = FontMetrics::boundingRect(f, String(u"1"));
+
+            double baseYOffset = (-bb.y() - bb.height() * 0.5) + bb.height() * 0.12;
+            double lineSpacing = bb.height() * 0.13;
+
+            int maxHooks = 0;
+            for (const ChordRest* cr : shapeElements) {
+                maxHooks = std::max(maxHooks, cr->durationType().hooks());
+            }
+
+            const ChordRest* firstEl = shapeElements.front();
+            const ChordRest* lastEl = shapeElements.back();
+            double beamPageX = item->pagePos().x();
+            double beamPageY = item->pagePos().y();
+
+            double x1 = firstEl->pagePos().x() - beamPageX;
+            double x2 = lastEl->pagePos().x() + lastEl->ldata()->bbox().width() - beamPageX;
+            double yTop = (firstEl->pagePos().y() - beamPageY) + baseYOffset - bb.height() * 0.5;
+            double yBottom = (firstEl->pagePos().y() - beamPageY) + baseYOffset
+                           + (maxHooks - 1) * lineSpacing + bb.height() * 0.1;
+
+            Shape jianpuShape(Shape::Type::Composite);
+            jianpuShape.add(RectF(x1, yTop, x2 - x1, yBottom - yTop));
+            ldata->setShape(jianpuShape);
+        }
+        return;  // Skip layout2 and standard beam segment creation
+    }
 
     std::vector<ChordRest*> crl;
 
@@ -628,7 +719,7 @@ void BeamLayout::createBeams(LayoutContext& ctx, Measure* measure)
     for (track_idx_t track = 0; track < ctx.dom().ntracks(); ++track) {
         const Staff* stf = ctx.dom().staff(track2staff(track));
 
-        // don’t compute beams for invisible staves and tablature without stems
+        // don't compute beams for invisible staves and tablature without stems
         if (!stf->show() || (stf->isTabStaff(measure->tick()) && stf->staffType(measure->tick())->stemless())) {
             continue;
         }

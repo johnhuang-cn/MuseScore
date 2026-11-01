@@ -77,7 +77,7 @@ NoteVal Score::noteValForPosition(Position pos, AccidentalType at, bool& error)
 
     // pitched/unpitched note entry depends on instrument (override StaffGroup)
     StaffGroup staffGroup = st->staffType(tick)->group();
-    if (staffGroup != StaffGroup::TAB) {
+    if (staffGroup != StaffGroup::TAB && staffGroup != StaffGroup::JIANPU) {
         staffGroup = instr->useDrumset() ? StaffGroup::PERCUSSION : StaffGroup::STANDARD;
     }
 
@@ -162,6 +162,31 @@ NoteVal Score::noteValForPosition(Position pos, AccidentalType at, bool& error)
             }
         }
         stringData->convertPitch(nval.pitch, st, pos.segment->tick(), &nval.string, &nval.fret);
+    }
+    break;
+
+    case StaffGroup::JIANPU: {
+        // Jianpu note entry: same as STANDARD for now (pitch-based)
+        AccidentalVal acci
+            = (at == AccidentalType::NONE ? s->measure()->findAccidental(s, staffIdx, line, error) : Accidental::subtype2value(at));
+        if (error) {
+            return nval;
+        }
+        int step           = absStep(line, clef);
+        int octave         = step / 7;
+        nval.pitch         = step2pitch(step) + octave * 12 + int(acci);
+        if (style().styleB(Sid::concertPitch)) {
+            nval.tpc1 = step2tpc(step % 7, acci);
+        } else {
+            nval.pitch += instr->transpose().chromatic;
+            nval.tpc2 = step2tpc(step % 7, acci);
+            Interval v = st->transpose(tick);
+            if (v.isZero()) {
+                nval.tpc1 = nval.tpc2;
+            } else {
+                nval.tpc1 = Transpose::transposeTpc(nval.tpc2, v, true);
+            }
+        }
     }
     break;
     }
@@ -401,7 +426,7 @@ Ret Score::putNote(const Position& p, bool replace)
 
     // pitched/unpitched note entry depends on instrument (override StaffGroup)
     StaffGroup staffGroup = st->staffType(s->tick())->group();
-    if (staffGroup != StaffGroup::TAB) {
+    if (staffGroup != StaffGroup::TAB && staffGroup != StaffGroup::JIANPU) {
         staffGroup = st->part()->instrument(s->tick())->useDrumset() ? StaffGroup::PERCUSSION : StaffGroup::STANDARD;
     }
 
@@ -421,6 +446,9 @@ Ret Score::putNote(const Position& p, bool replace)
         m_is.setDrumNote(-1);
         break;
     case StaffGroup::STANDARD:
+        m_is.setDrumNote(-1);
+        break;
+    case StaffGroup::JIANPU:
         m_is.setDrumNote(-1);
         break;
     }

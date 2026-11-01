@@ -2536,6 +2536,18 @@ void SystemLayout::layout2(System* system, LayoutContext& ctx)
             Measure* m = system->firstMeasure();
             double mag = m ? staff->staffMag(m->tick()) : 1.0;
             dist += akkoladeDistance * mag;
+            // Jianpu staff has 0 lines (staffHeight=0). Only compensate
+            // when Jianpu is the top staff, since staffHeight() drives the base distance.
+            // When Jianpu is the bottom staff, the top staff's height is already correct.
+            if (staff->isJianpuStaff(Fraction(0, 1))) {
+                dist += 4.0 * _spatium;
+            }
+            // When Jianpu is the bottom staff (linked below standard staff),
+            // add extra padding so the standard staff notation and the Jianpu numbers
+            // do not overlap.
+            if (staff2->isJianpuStaff(Fraction(0, 1))) {
+                dist += 7.5 * _spatium;
+            }
         } else {
             dist += staffDistance;
         }

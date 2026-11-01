@@ -21,13 +21,17 @@
  */
 
 #include "restlayout.h"
+#include "jianpufont.h"
 
 #include "beamlayout.h"
 #include "chordlayout.h"
 #include "tlayout.h"
 
 #include "dom/beam.h"
+#include "dom/stafftype.h"
 #include "dom/system.h"
+
+#include "draw/fontmetrics.h"
 
 using namespace muse;
 using namespace mu::engraving;
@@ -114,6 +118,41 @@ void RestLayout::layoutRest(const Rest* item, Rest::LayoutData* ldata, const Lay
         }
     }
 
+    // Jianpu: rest displayed as "0"
+    if (stt && stt->isJianpuStaff()) {
+        using namespace muse::draw;
+        Font f = jianpuFont(item);
+        double fontSize = f.pointSizeF();
+        double mags = item->magS();
+        f.setPointSizeF(fontSize);
+
+        String restStr(u"0");
+        double w = FontMetrics::width(f, restStr) * mags;
+        RectF bb = FontMetrics::boundingRect(f, restStr);
+
+        // Bbox matches draw coordinates (text vertically centered around y=0)
+        double halfH = bb.height() * mags / 2.0;
+        double bboxTop = -halfH;
+
+        // Reserve space for underlines: ascent + 8*mags covers up to 3 lines
+        double ascent = -bb.y() * mags;
+        double bboxBottom = ascent + 8.0 * mags;
+
+        // bbox is extended for eighth-or-shorter rests to cover dirty-rect area of
+        // duration underlines.
+        double bboxWidth = w;
+        if (item->durationType().hooks() > 0) {
+            bboxWidth = w + spatium * 4.0;
+        }
+
+        ldata->setBbox(RectF(0, bboxTop, bboxWidth, bboxBottom - bboxTop));
+        // 简谱多声部：休止符与音符一样按声部渲染在独立的行上
+        // （voice 0 为基线 y=0，每级声部下移一行，见 ChordLayout::layoutJianpu）
+        const double voiceRowY = (item->track() % VOICES) * (3.0 * spatium);
+        ldata->setPos(0.0, voiceRowY);
+        return;
+    }
+
     const_cast<Rest*>(item)->setDotLine(Rest::getDotline(item->durationType().type()));
 
     double yOff = item->offset().y();
@@ -171,6 +210,13 @@ void RestLayout::fillShape(const Rest* item, Rest::LayoutData* ldata, const Layo
 
 void RestLayout::resolveVerticalRestConflicts(LayoutContext& ctx, Segment* segment, staff_idx_t staffIdx)
 {
+    // Jianpu: voices are rendered on separate rows, so the standard-staff
+    // vertical rest-vs-chord / rest-vs-rest shifting must not apply (it would
+    // pull rests off their voice row).
+    if (ctx.dom().staff(staffIdx)->isJianpuStaff(segment->tick())) {
+        return;
+    }
+
     std::vector<Rest*> rests;
     std::vector<Chord*> chords;
 
@@ -440,7 +486,10 @@ void RestLayout::alignRests(const System* system, LayoutContext& ctx)
             if (std::abs(requiredMove) > restVertClearance) {
                 yResult = alignUpwards ? yCur - restVertClearance : yCur + restVertClearance;
             }
-            rest->mutldata()->setPosY(yResult);
+            // Skip position override for Jianpu staff rests (they are fixed at y=0)
+            if (!rest->staff() || !rest->staff()->staffTypeForElement(rest)->isJianpuStaff()) {
+                rest->mutldata()->setPosY(yResult);
+            }
             if (rest->isWholeRest() || rest->durationType() == DurationType::V_HALF) {
                 updateSymbol(rest, rest->mutldata());
             }
@@ -653,7 +702,17 @@ void RestLayout::fillShape(const Rest* item, Rest::LayoutData* ldata)
 {
     Shape shape(Shape::Type::Composite);
 
-    if ((!item->isGap() || item->debugDrawGap()) && !item->shouldNotBeDrawn()) {
+    const StaffType* stt = item->staff() ? item->staff()->staffTypeForElement(item) : nullptr;
+    if (stt && stt->isJianpuStaff()) {
+        shape.add(ChordLayout::chordRestShape(item));
+        shape.add(ldata->bbox(), item);
+        // A multi-"0" rest row needs its own horizontal room: the plain bbox is a
+        // single glyph wide and would let the measure squeeze the "0" group.
+        const double minW = jianpuRestGroupMinWidth(item);
+        if (minW > ldata->bbox().width()) {
+            shape.add(RectF(ldata->bbox().x(), ldata->bbox().y(), minW, ldata->bbox().height()), item);
+        }
+    } else if ((!item->isGap() || item->debugDrawGap()) && !item->shouldNotBeDrawn()) {
         shape.add(ChordLayout::chordRestShape(item));
         shape.add(item->symBbox(ldata->sym), item);
         for (const NoteDot* dot : item->dotList()) {
@@ -689,6 +748,45 @@ int RestLayout::computeNaturalLine(int lines)
 {
     int line = (lines % 2) ? floor(double(lines) / 2) : ceil(double(lines) / 2);
     return line;
+}
+
+// Minimum horizontal room a Jianpu multi-"0" rest row should occupy, so the
+// zeros keep an airy, played-measure-like spacing instead of being squeezed
+// behind the inline "1=X N/M" text. Mirrors the zero-count logic in TDraw.
+double RestLayout::jianpuRestGroupMinWidth(const Rest* item)
+{
+    DurationType rdtype = item->durationType().type();
+    int beats = 1;
+    if (rdtype == DurationType::V_HALF) {
+        beats = 2;
+    } else if (rdtype == DurationType::V_WHOLE || rdtype == DurationType::V_MEASURE) {
+        beats = 4;
+        if (rdtype == DurationType::V_MEASURE && item->measure()) {
+            const Fraction ts = item->measure()->timesig();
+            const int denom = ts.denominator() > 0 ? ts.denominator() : 4;
+            const Fraction mlen = item->measure()->stretchedLen(item->staff());
+            const int unitDenom = denom < 4 ? 4 : denom;
+            int zeros = (mlen.numerator() * unitDenom + mlen.denominator() / 2) / mlen.denominator();
+            beats = zeros < 1 ? 1 : zeros;
+        }
+    } else if (rdtype == DurationType::V_BREVE) {
+        beats = 8;
+    }
+    if (beats < 2) {
+        return 0.0;
+    }
+    if (item->dots() > 0) {
+        int cur = beats;
+        for (int d = 0; d < item->dots(); ++d) {
+            cur /= 2;
+            beats += cur;
+        }
+    }
+    draw::Font f = jianpuFont(item);
+    f.setPointSizeF(f.pointSizeF() * item->magS());
+    const double textW = draw::FontMetrics::width(f, String(u"0"));
+    const double minSpacing = textW * 3.0;
+    return (beats - 1) * minSpacing + textW;
 }
 
 int RestLayout::computeVoiceOffset(const Rest* item, Rest::LayoutData* ldata)

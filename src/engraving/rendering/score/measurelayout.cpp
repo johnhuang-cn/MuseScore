@@ -1609,9 +1609,8 @@ void MeasureLayout::createEndBarLines(Measure* m, bool isLastMeasureInSystem, La
     bool hasCourtesyTimeSig = false;
     if (nextMeasure && !sectionBreakHideCourtesy) {
         //  Don't change barlines at the end of a section break,
-        //  and don't create courtesy key/time signatures.
-        const bool showCourtesyKeySig = (isLastMeasureInSystem && ctx.conf().styleB(Sid::genCourtesyKeysig))
-                                        || (m->repeatJump() && ctx.conf().styleB(Sid::showCourtesiesOtherJumps));
+        //  and don't create courtesy key/time signatures at system end.
+        const bool showCourtesyKeySig = (!isLastMeasureInSystem && m->repeatJump() && ctx.conf().styleB(Sid::showCourtesiesOtherJumps));
 
         Fraction tick = m->endTick();
         for (staff_idx_t staffIdx = 0; staffIdx < nstaves; ++staffIdx) {
@@ -1637,8 +1636,7 @@ void MeasureLayout::createEndBarLines(Measure* m, bool isLastMeasureInSystem, La
             break;
         }
 
-        bool showCourtesyTimeSig = (isLastMeasureInSystem && ctx.conf().styleB(Sid::genCourtesyTimesig))
-                                   || (m->repeatJump() && ctx.conf().styleB(Sid::showCourtesiesOtherJumps));
+        bool showCourtesyTimeSig = (!isLastMeasureInSystem && m->repeatJump() && ctx.conf().styleB(Sid::showCourtesiesOtherJumps));
 
         Segment* timeSigSeg = nextMeasure->findSegmentR(SegmentType::TimeSig, Fraction(0, 1));
         if (timeSigSeg) {
@@ -2623,13 +2621,15 @@ Segment* MeasureLayout::addHeaderKeySig(Measure* m, bool isFirstKeysig, const St
     }
 
     bool isPitchedStaff = staff->isPitchedStaff(m->tick());
+    bool isJianpuStaff = staff->isJianpuStaff(m->tick());
 
     KeySig* keysig = nullptr;
     if (kSegment) {
         keysig = toKeySig(kSegment->element(track));
     }
     // keep key sigs in TABs: TABs themselves should hide them
-    if ((isFirstKeysig || ctx.conf().styleB(Sid::genKeysig)) && isPitchedStaff) {
+    // Jianpu staves also need KeySig for key change display ("1=X")
+    if ((isFirstKeysig || ctx.conf().styleB(Sid::genKeysig)) && (isPitchedStaff || isJianpuStaff)) {
         if (!kSegment) {
             kSegment = Factory::createSegment(m, SegmentType::KeySig, Fraction(0, 1));
             m->add(kSegment);
@@ -2649,7 +2649,7 @@ Segment* MeasureLayout::addHeaderKeySig(Measure* m, bool isFirstKeysig, const St
         keysig->mutldata()->reset();
         TLayout::layoutKeySig(keysig, keysig->mutldata(), ctx.conf());
         kSegment->setEnabled(true);
-    } else if (keysig && isPitchedStaff) {
+    } else if (keysig && (isPitchedStaff || isJianpuStaff)) {
         // do not remove user modified keysigs
         bool remove = true;
         EngravingItem* e = kSegment->element(staffIdx * VOICES);
@@ -2773,22 +2773,21 @@ void MeasureLayout::removeSystemHeader(Measure* m)
 
 void MeasureLayout::addSystemTrailer(Measure* m, Measure* nm, LayoutContext& ctx)
 {
+    UNUSED(nm);
     const size_t nstaves = ctx.dom().nstaves();
-    bool systemBreakHideCourtesy = false;
-    if (LayoutBreak* sectionBreakElement = m->sectionBreakElement()) {
-        systemBreakHideCourtesy = !sectionBreakElement->showCourtesy();
-    }
 
-    // locate a time sig. in the next measure and, if found,
-    // check if it has court. sig. turned off
-    if (nm && ctx.conf().styleB(Sid::genCourtesyTimesig) && !systemBreakHideCourtesy && !ctx.conf().isFloatMode()) {
-        setCourtesyTimeSig(m, nm->tick(), m->endTick(), SegmentType::TimeSigAnnounce, ctx);
+    // Do not display courtesy time/key signatures at the end of a system ("half measure" trailer);
+    // key/time signature changes at a system break are displayed directly at the start of the next system.
+    if (Segment* tsAnnounce = m->findSegmentR(SegmentType::TimeSigAnnounce, m->ticks())) {
+        tsAnnounce->setEnabled(false);
+        tsAnnounce->setTrailer(false);
     }
-
-    // courtesy key signatures, clefs
-    if (nm && ctx.conf().styleB(Sid::genCourtesyKeysig) && !systemBreakHideCourtesy) {
-        setCourtesyKeySig(m, nm->tick(), m->endTick(), SegmentType::KeySigAnnounce, ctx);
+    if (Segment* ksAnnounce = m->findSegmentR(SegmentType::KeySigAnnounce, m->ticks())) {
+        ksAnnounce->setEnabled(false);
+        ksAnnounce->setTrailer(false);
     }
+    m->setHasCourtesyTimeSig(false);
+    m->setHasCourtesyKeySig(false);
 
     Segment* courtesyClefSeg = m->findSegmentR(SegmentType::Clef, m->ticks());
     if (courtesyClefSeg) {

@@ -127,10 +127,12 @@ enum class StaffTypes : signed char {
     TAB_ITALIAN, TAB_FRENCH,
     TAB_7COMMON, TAB_8COMMON, TAB_9COMMON, TAB_10COMMON,
     TAB_7SIMPLE, TAB_8SIMPLE, TAB_9SIMPLE, TAB_10SIMPLE,
+    JIANPU_FIXED, JIANPU_MOVABLE,
     STAFF_TYPES,
     // some useful shorthands:
     PERC_DEFAULT = StaffTypes::PERC_5LINE,
     TAB_DEFAULT = StaffTypes::TAB_6COMMON,
+    JIANPU_DEFAULT = StaffTypes::JIANPU_MOVABLE,
 };
 
 enum class ShowTiedFret : unsigned char {
@@ -298,6 +300,7 @@ public:
 
     bool isTabStaff() const { return m_group == StaffGroup::TAB; }
     bool isDrumStaff() const { return m_group == StaffGroup::PERCUSSION; }
+    bool isJianpuStaff() const { return m_group == StaffGroup::JIANPU; }
 
     bool isSimpleTabStaff() const;
     bool isCommonTabStaff() const;

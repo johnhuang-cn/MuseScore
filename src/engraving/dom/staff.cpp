@@ -583,7 +583,7 @@ ClefTypeList Staff::clefType(const Fraction& tick) const
     if (ct.concertClef == ClefType::INVALID) {
         // Clef compatibility based on instrument (override StaffGroup)
         StaffGroup staffGroup = staffType(tick)->group();
-        if (staffGroup != StaffGroup::TAB) {
+        if (staffGroup != StaffGroup::TAB && staffGroup != StaffGroup::JIANPU) {
             staffGroup = part()->instrument(tick)->useDrumset() ? StaffGroup::PERCUSSION : StaffGroup::STANDARD;
         }
 
@@ -600,6 +600,9 @@ ClefTypeList Staff::clefType(const Fraction& tick) const
             break;
         case StaffGroup::PERCUSSION:
             ct = ClefTypeList(ClefType::PERC);
+            break;
+        case StaffGroup::JIANPU:
+            ct = defaultClefType();
             break;
         }
     }
@@ -1747,6 +1750,9 @@ bool Staff::setProperty(Pid id, const PropertyValue& v)
         m_showIfEntireSystemEmpty = v.toBool();
         break;
     case Pid::VISIBLE:
+        LOGI() << "[VIS-DEBUG] Staff::setProperty(VISIBLE) staff ptr=" << (void*)this
+               << " idx=" << idx() << " id=" << this->id()
+               << " visible=" << v.toBool() << " linked=" << isLinked();
         setVisible(v.toBool());
         masterScore()->rebuildMidiMapping();
         score()->setPlaylistDirty();
@@ -1880,6 +1886,15 @@ bool Staff::isDrumStaff(const Fraction& tick) const
 {
     //check for instrument instead of staffType (for pitched to unpitched instr. changes)
     return part()->instrument(tick)->useDrumset();
+}
+
+//---------------------------------------------------------
+//   isJianpuStaff
+//---------------------------------------------------------
+
+bool Staff::isJianpuStaff(const Fraction& tick) const
+{
+    return staffType(tick)->group() == StaffGroup::JIANPU;
 }
 
 //---------------------------------------------------------

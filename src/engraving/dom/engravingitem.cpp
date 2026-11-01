@@ -430,6 +430,12 @@ bool EngravingItem::onTabStaff() const
     return stt ? stt->isTabStaff() : false;
 }
 
+bool EngravingItem::onJianpuStaff() const
+{
+    const StaffType* stt = staffType();
+    return stt ? stt->isJianpuStaff() : false;
+}
+
 bool EngravingItem::hasGrips() const
 {
     return gripsCount() > 0;
@@ -1480,8 +1486,13 @@ PropertyPropagation EngravingItem::propertyPropagation(const EngravingItem* dest
 
     const Score* sourceScore = score();
     const Score* destinationScore = destinationItem->score();
-    const Staff* sourceStaff = staff();
-    const Staff* destinationStaff = destinationItem->staff();
+
+    // A Staff is its own host: without this, staff() resolves to nullptr for
+    // Staff objects and linked staves in the same score would wrongly share
+    // visibility/position/color changes (e.g. hiding one staff hides all its links).
+    const Staff* sourceStaff = type() == ElementType::STAFF ? toStaff(this) : staff();
+    const Staff* destinationStaff = destinationItem->type() == ElementType::STAFF
+                                    ? toStaff(destinationItem) : destinationItem->staff();
 
     if (sourceScore == destinationScore) {
         const bool diffStaff = sourceStaff != destinationStaff;

@@ -81,7 +81,8 @@ void EIDRegister::removeItem(const EngravingObject* item)
 EngravingObject* EIDRegister::itemFromEID(const EID& eid) const
 {
     auto iter = m_eidToItem.find(eid);
-    IF_ASSERT_FAILED(iter != m_eidToItem.end()) {
+    if (iter == m_eidToItem.end()) {
+        LOGW() << "EIDRegister::itemFromEID: EID not found in registry, returning nullptr";
         return nullptr;
     }
     return iter->second;

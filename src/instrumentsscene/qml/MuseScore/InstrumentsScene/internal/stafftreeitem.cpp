@@ -37,6 +37,9 @@ StaffTreeItem::StaffTreeItem(IMasterNotationPtr masterNotation, INotationPtr not
             this->parentItem()->setIsVisible(true, false);
         }
 
+        LOGI() << "[VIS-DEBUG] eye clicked: title=" << title() << " id=" << id()
+               << " visible=" << isVisible;
+
         this->notation()->parts()->setStaffVisible(id(), isVisible);
     });
 

@@ -154,6 +154,30 @@ muse::async::Notification NotationConfigurationStub::isOnlyInvertInDarkThemeChan
     return n;
 }
 
+QString NotationConfigurationStub::jianpuFontFamily() const
+{
+    return QStringLiteral("Arial");
+}
+
+void NotationConfigurationStub::setJianpuFontFamily(const QString&)
+{
+}
+
+int NotationConfigurationStub::jianpuFontSize() const
+{
+    return 12;
+}
+
+void NotationConfigurationStub::setJianpuFontSize(int)
+{
+}
+
+muse::async::Notification NotationConfigurationStub::jianpuFontChanged() const
+{
+    static muse::async::Notification n;
+    return n;
+}
+
 QColor NotationConfigurationStub::borderColor() const
 {
     return QColor();

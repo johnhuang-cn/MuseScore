@@ -220,10 +220,35 @@ PreferencesPage {
 
         SeparatorLine {}
 
-        ThemeAdditionalOptionsSection {
+        JianpuTextSection {
+            allFonts: appearanceModel.allFonts()
+            currentFontIndex: appearanceModel.currentJianpuFontIndex
+            textSize: appearanceModel.jianpuTextSize
 
             navigation.section: root.navigationSection
             navigation.order: root.navigationOrderStart + 7
+
+            onFontChangeRequested: function(newFontIndex) {
+                appearanceModel.currentJianpuFontIndex = newFontIndex
+            }
+
+            onTextSizeChangeRequested: function(newTextSize) {
+                appearanceModel.jianpuTextSize = newTextSize
+            }
+
+            onFocusChanged: {
+                if (activeFocus) {
+                    root.ensureContentVisibleRequested(Qt.rect(x, y, width, height))
+                }
+            }
+        }
+
+        SeparatorLine {}
+
+        ThemeAdditionalOptionsSection {
+
+            navigation.section: root.navigationSection
+            navigation.order: root.navigationOrderStart + 8
 
             onResetThemeToDefaultRequested: {
                 appearanceModel.resetAppearancePreferencesToDefault()

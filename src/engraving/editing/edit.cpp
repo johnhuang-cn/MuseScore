@@ -1592,7 +1592,7 @@ void Score::cmdAddTimeSig(Measure* fm, staff_idx_t staffIdx, TimeSig* ts, bool l
                         const track_idx_t masterTrack = muse::key(score->excerpt()->tracksMapping(), nsig->track());
                         TimeSig* masterTimeSig = masterTimeSigs[masterTrack];
                         if (masterTimeSig) {
-                            undo(new Link(masterTimeSig, nsig));
+                            undo(new Link(nsig, masterTimeSig));
                         }
                     }
                 } else {
@@ -6070,7 +6070,7 @@ void Score::undoChangeKeySig(Staff* ostaff, const Fraction& tick, KeySigEvent ke
             nks->setKeySigEvent(nkey);
             doUndoAddElement(nks);
             if (lks) {
-                undo(new Link(lks, nks));
+                undo(new Link(nks, lks));
             } else {
                 lks = nks;
             }

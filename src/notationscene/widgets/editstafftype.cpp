@@ -313,6 +313,9 @@ void EditStaffType::setValues()
     groupName->setText(TConv::translatedUserName(group));
 
     name->setText(staffType.name());
+    //! NOTE Jianpu staves legitimately have zero staff lines; allow 0 so the
+    //! dialog does not clamp the value and force a phantom line on apply.
+    lines->setMinimum(group == mu::engraving::StaffGroup::JIANPU ? 0 : 1);
     lines->setValue(staffType.lines());
     lineDistance->setValue(staffType.lineDistance().val());
     genClef->setChecked(staffType.genClef());
@@ -398,6 +401,10 @@ void EditStaffType::setValues()
         genKeysigPercussion->setChecked(staffType.genKeysig());
         showLedgerLinesPercussion->setChecked(staffType.showLedgerLines());
         stemlessPercussion->setChecked(staffType.stemless());
+        break;
+
+    case mu::engraving::StaffGroup::JIANPU:
+        // TODO: Jianpu-specific UI settings
         break;
     }
     updatePreview();
@@ -738,6 +745,9 @@ QString EditStaffType::createUniqueStaffTypeName(mu::engraving::StaffGroup group
             break;
         case mu::engraving::StaffGroup::TAB:
             sn = QString("Tab-%1 [*]").arg(idx);
+            break;
+        case mu::engraving::StaffGroup::JIANPU:
+            sn = QString("Jianpu-%1 [*]").arg(idx);
             break;
         }
         bool found = false;

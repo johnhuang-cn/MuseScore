@@ -52,6 +52,9 @@ static const Settings::Key FOREGROUND_USE_COLOR(module_name, "ui/canvas/foregrou
 static const Settings::Key INVERT_SCORE_COLOR("engraving", "engraving/scoreColorInversion");
 static const Settings::Key ONLY_INVERT_IN_DARK_THEME(module_name, "ui/canvas/onlyInvertInDarkTheme");
 
+static const Settings::Key JIANPU_FONT_FAMILY("engraving", "engraving/jianpuFontFamily");
+static const Settings::Key JIANPU_FONT_SIZE("engraving", "engraving/jianpuFontSize");
+
 static const Settings::Key NOTE_INPUT_PREVIEW_COLOR(module_name, "ui/canvas/noteInputPreviewColor");
 
 static const Settings::Key USE_NOTE_INPUT_CURSOR_IN_INPUT_BY_DURATION(module_name,
@@ -177,6 +180,14 @@ void NotationConfiguration::init()
     settings()->valueChanged(ONLY_INVERT_IN_DARK_THEME).onReceive(nullptr, [this](const Val&) {
         m_isOnlyInvertInDarkThemeChanged.notify();
         m_foregroundChanged.notify();
+    });
+
+    settings()->valueChanged(JIANPU_FONT_FAMILY).onReceive(nullptr, [this](const Val&) {
+        m_jianpuFontChanged.notify();
+    });
+
+    settings()->valueChanged(JIANPU_FONT_SIZE).onReceive(nullptr, [this](const Val&) {
+        m_jianpuFontChanged.notify();
     });
 
     settings()->setDefaultValue(NOTE_INPUT_PREVIEW_COLOR, Val(selectionColor()));
@@ -540,6 +551,31 @@ void NotationConfiguration::setOnlyInvertInDarkTheme(bool value)
 muse::async::Notification NotationConfiguration::isOnlyInvertInDarkThemeChanged() const
 {
     return m_isOnlyInvertInDarkThemeChanged;
+}
+
+QString NotationConfiguration::jianpuFontFamily() const
+{
+    return QString::fromStdString(settings()->value(JIANPU_FONT_FAMILY).toString());
+}
+
+void NotationConfiguration::setJianpuFontFamily(const QString& family)
+{
+    settings()->setSharedValue(JIANPU_FONT_FAMILY, Val(family.toStdString()));
+}
+
+int NotationConfiguration::jianpuFontSize() const
+{
+    return qRound(settings()->value(JIANPU_FONT_SIZE).toDouble());
+}
+
+void NotationConfiguration::setJianpuFontSize(int size)
+{
+    settings()->setSharedValue(JIANPU_FONT_SIZE, Val(static_cast<double>(size)));
+}
+
+muse::async::Notification NotationConfiguration::jianpuFontChanged() const
+{
+    return m_jianpuFontChanged;
 }
 
 QColor NotationConfiguration::borderColor() const

@@ -61,6 +61,9 @@ public:
     bool canLayoutIcons() const override;
     String iconsFontFamily() const override;
 
+    String jianpuFontFamily() const override;
+    double jianpuFontSize() const override;
+
     Color defaultColor() const override;
     Color scoreInversionColor() const override;
     Color lassoColor() const override;

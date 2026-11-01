@@ -3896,7 +3896,7 @@ void TRead::read(StaffType* t, XmlReader& e, ReadContext&)
 {
     t->setGroup(TConv::fromXml(e.asciiAttribute("group"), StaffGroup::STANDARD));
 
-    if (t->group() == StaffGroup::TAB) {
+    if (t->group() == StaffGroup::TAB || t->group() == StaffGroup::JIANPU) {
         t->setGenKeysig(false);
     }
 

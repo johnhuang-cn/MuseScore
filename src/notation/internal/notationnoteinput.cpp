@@ -151,6 +151,8 @@ void NotationNoteInput::startNoteInput(NoteInputMethod method, bool focusNotatio
     }
     case mu::engraving::StaffGroup::PERCUSSION:
         break;
+    case mu::engraving::StaffGroup::JIANPU:
+        break;
     }
 
     notifyAboutNoteInputStarted(focusNotation);

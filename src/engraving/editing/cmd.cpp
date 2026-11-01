@@ -1950,7 +1950,7 @@ void Score::upDown(bool up, UpDownMode mode)
 
         StaffGroup staffGroup = staff->staffType(oNote->chord()->tick())->group();
         // if not tab, check for instrument instead of staffType (for pitched to unpitched instrument changes)
-        if (staffGroup != StaffGroup::TAB) {
+        if (staffGroup != StaffGroup::TAB && staffGroup != StaffGroup::JIANPU) {
             staffGroup = staff->part()->instrument(oNote->tick())->useDrumset() ? StaffGroup::PERCUSSION : StaffGroup::STANDARD;
         }
 
@@ -2065,6 +2065,31 @@ void Score::upDown(bool up, UpDownMode mode)
                 }
             }
             break;
+            }
+            break;
+
+        case StaffGroup::JIANPU:
+            // Jianpu: same as STANDARD for pitch up/down
+            switch (mode) {
+            case UpDownMode::OCTAVE:
+                if (up) {
+                    if (pitch < 116) {
+                        newPitch = pitch + 12;
+                    }
+                } else {
+                    if (pitch > 11) {
+                        newPitch = pitch - 12;
+                    }
+                }
+                break;
+
+            case UpDownMode::CHROMATIC:
+                upDownChromatic(up, pitch, oNote, key, tpc1, tpc2, newPitch, newTpc1, newTpc2);
+                break;
+
+            case UpDownMode::DIATONIC:
+                upDownChromatic(up, pitch, oNote, key, tpc1, tpc2, newPitch, newTpc1, newTpc2);
+                break;
             }
             break;
         }
